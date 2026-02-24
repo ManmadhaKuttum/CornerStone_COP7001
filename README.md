@@ -37,8 +37,6 @@ Each module runs independently using producer–consumer queues to reduce end-to
 - IndicTrans2 / MarianMT (Translation)  
 - Coqui TTS (Speech Synthesis)
 
----
-
 
 ---
 
