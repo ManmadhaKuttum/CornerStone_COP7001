@@ -18,6 +18,7 @@ audio_queue = queue.Queue()
 
 print("Loading Whisper model...")
 model = whisper.load_model("base", device="cuda")
+
 def audio_callback(indata, frames, time_info, status):
     audio_queue.put(indata.copy())
 
