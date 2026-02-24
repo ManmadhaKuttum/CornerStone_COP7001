@@ -49,7 +49,8 @@ Each module runs independently using producer–consumer queues to reduce end-to
 
 ---
 
-## Status
+## Current Status
 
-- Under Active Development
-
+- Real-time microphone streaming implemented
+- Voice Activity Detection added
+- GPU-accelerated Whisper ASR integrated
