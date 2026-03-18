@@ -1,19 +1,27 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Phase 1 Dashboard</title>
+    <title>Phase 2 Dashboard</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <h1>🎤 Real-Time Audio Dashboard</h1>
+    <h1>🎤 Hindi ASR Dashboard</h1>
 
     <div class="meter">
         <div id="energyFill" class="fill"></div>
     </div>
 
-    <p>Frames: <span id="frames">0</span></p>
+    <p>Frames Processed: <span id="frames">0</span></p>
     <p>Runtime: <span id="runtime">0</span> sec</p>
     <p>Status: <span id="alive">---</span></p>
+    <p>Speech: <span id="speech">---</span></p>
+    <p>ASR Latency: <span id="latency">0</span> ms</p>
+
+    <h3>Partial Transcript (Hindi)</h3>
+    <div class="box" id="partial"></div>
+
+    <h3>Final Transcript (Hindi)</h3>
+    <div class="box" id="final"></div>
 
     <script src="/static/script.js"></script>
 </body>

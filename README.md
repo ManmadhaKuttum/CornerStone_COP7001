@@ -1,41 +1,49 @@
-# Real-Time Speech Translation System  
-## Phase 1 – Audio Ingress & Live Dashboard
+# Real-Time Speech Translation System
+
+## Phase 2 – Hindi Speech Recognition (ASR)
 
 This project aims to build a real-time speech-to-speech translation system for Indian languages.
 
-The current implementation completes **Phase 1 (Day 20 deliverable)**:
-Live microphone streaming with a real-time web dashboard for system observability.
+The current implementation completes **Phase 2**:
+Real-time **Hindi speech recognition (ASR)** from microphone input with a live monitoring dashboard.
 
 ---
 
-## Implemented (Phase 1)
+## Implemented (Phase 2)
 
-- Live microphone audio capture (streaming)
-- Producer–consumer pipeline using a bounded queue
-- Concurrent processing (audio + monitoring thread)
-- Real-time web dashboard (WebSocket-based)
-- Live audio energy meter
-- Runtime and liveness indicators
-- Stable continuous execution
-- Fully offline operation
+* Live microphone audio capture (streaming)
+* Voice Activity Detection (VAD) for speech segmentation
+* Real-time Hindi speech-to-text using Faster-Whisper
+* GPU-accelerated inference (CUDA support)
+* Producer–consumer pipeline using a bounded queue
+* Concurrent processing (audio + segmentation + ASR + dashboard)
+* Real-time web dashboard (WebSocket-based)
+* Live audio energy meter
+* Speech activity indicator (Speaking / Silence)
+* Partial and final transcript display
+* ASR latency tracking
+* Stable continuous execution
+* Fully offline operation (no external APIs)
 
 ---
 
 ## Architecture (Current)
 
-Microphone → Audio Buffer → Monitor Thread → Web Dashboard
+Microphone → Audio Buffer → Segmenter (VAD) → ASR (Whisper) → Web Dashboard
 
-This establishes the streaming skeleton required for later integration of ASR, translation, and TTS modules.
+This forms the core pipeline required for real-time speech processing.
 
 ---
 
 ## Tech Stack
 
-- Python
-- SoundDevice
-- FastAPI
-- WebSockets
-- HTML / CSS / JavaScript
+* Python
+* SoundDevice
+* Faster-Whisper (ASR)
+* FastAPI
+* WebSockets
+* HTML / CSS / JavaScript
+* CUDA (GPU acceleration)
 
 ---
 
@@ -43,3 +51,65 @@ This establishes the streaming skeleton required for later integration of ASR, t
 
 ```bash
 python src/main.py
+```
+
+Then open in browser:
+
+```
+http://localhost:8000
+```
+
+---
+
+## How to Use
+
+1. Start the server
+2. Open the dashboard in your browser
+3. Speak clearly in **Hindi**
+4. Observe:
+
+   * Energy levels
+   * Speech detection
+   * Live transcription output
+
+---
+
+## Example Test Sentences
+
+* मेरा नाम मनमधा है
+* मैं हिंदी बोल रहा हूँ
+* यह एक परीक्षण है
+
+---
+
+## Current Output
+
+* Real-time Hindi text transcription from speech
+* Displayed on the dashboard instantly after speech ends
+
+---
+
+## Next Phase (Planned)
+
+### Phase 3 – Translation
+
+* Hindi text → Telugu text translation
+* Integration with Indic translation models
+* Real-time translated output on dashboard
+
+---
+
+## Future Scope
+
+* Telugu speech recognition
+* Text-to-speech (TTS)
+* Full speech-to-speech translation
+* Multi-language support
+
+---
+
+## Notes
+
+* Works best with clear speech and minimal background noise
+* GPU improves performance significantly (RTX 2050 supported)
+* No internet required after model download
