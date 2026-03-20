@@ -1,33 +1,197 @@
-body {
-    font-family: Arial, sans-serif;
-    background: #111;
-    color: white;
-    text-align: center;
-    margin: 20px;
+:root {
+    --bg-color: #0b0f19;
+    --panel-bg: #151a28;
+    --border-color: #232b3e;
+    --text-main: #e2e8f0;
+    --text-muted: #94a3b8;
+    --accent-blue: #3b82f6;
+    --accent-green: #10b981;
+    --accent-warning: #f59e0b;
 }
 
+* { box-sizing: border-box; }
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg-color);
+    color: var(--text-main);
+    margin: 0;
+    padding: 10px 18px;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+/* ── Header ── */
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 8px;
+    margin-bottom: 10px;
+    flex-shrink: 0;
+}
+.header h1 { margin: 0; color: var(--accent-blue); font-size: 20px; }
+.header p  { margin: 3px 0 0 0; color: var(--text-muted); font-size: 12px; }
+
+.status-pill {
+    padding: 5px 14px;
+    border-radius: 20px;
+    font-weight: bold;
+    font-size: 12px;
+}
+.status-pill.online  { background: rgba(16,185,129,0.2); color: var(--accent-green); }
+.status-pill.offline { background: rgba(239,68,68,0.2);  color: #ef4444; }
+
+/* ── Grid: 3 rows, fits viewport ── */
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto 1fr; /* row 3 stretches to fill */
+    gap: 10px;
+    width: 100%;
+    max-width: 1400px;
+    margin: 0 auto;
+    flex-grow: 1;
+    overflow: hidden;
+    min-height: 0;
+}
+
+.panel {
+    background: var(--panel-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+.span-2 { grid-column: span 2; }
+.panel h3 {
+    margin: 0 0 10px 0;
+    font-size: 12px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    flex-shrink: 0;
+}
+
+/* ── Liveness ── */
+.liveness-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.badge {
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    padding: 5px 9px;
+    border-radius: 6px;
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; background: #333; flex-shrink: 0; }
+.dot.active     { background: var(--accent-green); box-shadow: 0 0 6px var(--accent-green); }
+.dot.processing { background: var(--accent-warning); box-shadow: 0 0 6px var(--accent-warning); }
+
+.speaking-indicator {
+    padding: 6px;
+    border-radius: 6px;
+    text-align: center;
+    font-weight: bold;
+    font-size: 13px;
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+}
+.speaking-indicator.active {
+    background: rgba(59,130,246,0.2);
+    color: var(--accent-blue);
+    border-color: var(--accent-blue);
+}
+
+/* ── Audio meter ── */
 .meter {
-    width: 70%;
-    height: 28px;
-    background: #333;
-    margin: 20px auto;
+    width: 100%;
+    height: 18px;
+    background: var(--bg-color);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 6px;
+    border: 1px solid var(--border-color);
+}
+.fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-blue), var(--accent-green));
+    width: 0%;
+    transition: width 0.1s;
+}
+.stats-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+/* ── Latency ── */
+.latency-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; }
+.lat-card {
+    background: var(--bg-color);
+    padding: 8px;
     border-radius: 8px;
+    text-align: center;
+    border: 1px solid var(--border-color);
+}
+.lat-value { font-size: 22px; font-weight: bold; color: var(--accent-green); }
+.lat-label { font-size: 10px; color: var(--text-muted); margin-top: 4px; }
+.lat-card.highlight { border-color: var(--accent-blue); }
+.lat-card.highlight .lat-value { color: var(--accent-blue); }
+
+/* ── Transcript / Translation — fills row 3 ── */
+.dual-text {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    overflow: hidden;
+    min-height: 0;
+}
+
+.text-column {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
     overflow: hidden;
 }
 
-.fill {
-    height: 100%;
-    background: lime;
-    width: 0%;
+.text-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+    flex-shrink: 0;
 }
 
-.box {
-    width: 70%;
-    min-height: 50px;
-    margin: 10px auto 20px;
-    padding: 12px;
-    background: #1c1c1c;
-    border: 1px solid #333;
+/* Partial — fixed height, italic */
+.text-box {
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    padding: 10px 12px;
     border-radius: 8px;
-    text-align: left;
+    font-size: 14px;
+    margin-bottom: 8px;
+    flex-shrink: 0;
+}
+.text-box.partial {
+    color: var(--text-muted);
+    font-style: italic;
+    min-height: 40px;
+}
+
+/* Finalized — grows to fill remaining height, text always visible */
+.text-box.final {
+    flex-grow: 1;
+    overflow-y: auto;
+    margin-bottom: 0;
+    color: var(--text-main);      /* ← was missing, caused invisible text */
+    font-size: 15px;
+    line-height: 1.6;
+    min-height: 60px;
 }
