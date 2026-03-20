@@ -1,28 +1,93 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Phase 2 Dashboard</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Speech Translation (Hindi → Telugu)</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <h1>🎤 Hindi ASR Dashboard</h1>
 
-    <div class="meter">
-        <div id="energyFill" class="fill"></div>
+<div class="header">
+    <div>
+        <h1>🎙️ Real-Time Speech Translation</h1>
+        <p><strong>Source:</strong> Hindi &nbsp;|&nbsp; <strong>Target:</strong> Telugu &nbsp;|&nbsp; Fully Offline &nbsp;|&nbsp; Runtime: <span id="runtime-val">0s</span></p>
+    </div>
+    <div id="conn-status" class="status-pill offline">🔴 Disconnected</div>
+</div>
+
+<div class="dashboard-grid">
+
+    <!-- Row 1, Col 1: Liveness -->
+    <div class="panel">
+        <h3>System Liveness</h3>
+        <div class="liveness-row">
+            <div class="badge" id="badge-mic">  <span class="dot"></span> Microphone</div>
+            <div class="badge" id="badge-asr">  <span class="dot"></span> ASR (Whisper)</div>
+            <div class="badge" id="badge-trans"><span class="dot"></span> Translation (NLLB)</div>
+            <div class="badge" id="badge-tts">  <span class="dot"></span> TTS (Phase 4)</div>
+        </div>
+        <div class="speaking-indicator" id="speaking-indicator">🔇 Silence</div>
     </div>
 
-    <p>Frames Processed: <span id="frames">0</span></p>
-    <p>Runtime: <span id="runtime">0</span> sec</p>
-    <p>Status: <span id="alive">---</span></p>
-    <p>Speech: <span id="speech">---</span></p>
-    <p>ASR Latency: <span id="latency">0</span> ms</p>
+    <!-- Row 1, Col 2: Audio -->
+    <div class="panel">
+        <h3>Audio Input Activity</h3>
+        <div class="meter"><div id="energyFill" class="fill"></div></div>
+        <div class="stats-row">
+            <span>Energy: <b id="energy-val">0.00000</b></span>
+            <span>Frames: <b id="frames-val">0</b></span>
+        </div>
+        <div class="stats-row" style="margin-top:5px">
+            <span>ASR Words: <b id="words-asr">0</b></span>
+            <span>Trans Words: <b id="words-trans">0</b></span>
+        </div>
+    </div>
 
-    <h3>Partial Transcript (Hindi)</h3>
-    <div class="box" id="partial"></div>
+    <!-- Row 2: Latency full width -->
+    <div class="panel span-2">
+        <h3>Per-Stage Latency</h3>
+        <div class="latency-grid">
+            <div class="lat-card">
+                <div class="lat-value" id="lat-asr">—</div>
+                <div class="lat-label">ASR (ms)</div>
+            </div>
+            <div class="lat-card">
+                <div class="lat-value" id="lat-trans">—</div>
+                <div class="lat-label">Translation (ms)</div>
+                <div style="font-size:10px;color:#94a3b8;margin-top:3px" id="trans-backend"></div>
+            </div>
+            <div class="lat-card">
+                <div class="lat-value" style="color:#94a3b8">—</div>
+                <div class="lat-label">TTS (ms) — Phase 4</div>
+            </div>
+            <div class="lat-card highlight">
+                <div class="lat-value" id="lat-e2e">—</div>
+                <div class="lat-label">End-to-End (ms)</div>
+            </div>
+        </div>
+    </div>
 
-    <h3>Final Transcript (Hindi)</h3>
-    <div class="box" id="final"></div>
+    <!-- Row 3: Transcripts — fills all remaining height -->
+    <div class="panel span-2 dual-text">
+        <div class="text-column">
+            <h3>Hindi — Recognized Speech</h3>
+            <div class="text-label">Live Partial:</div>
+            <div class="text-box partial" id="partial-asr">Waiting for speech...</div>
+            <div class="text-label">Finalized Text:</div>
+            <div class="text-box final" id="final-asr"></div>
+        </div>
+        <div class="text-column">
+            <h3>Telugu — Translated Text</h3>
+            <div class="text-label">Live Partial:</div>
+            <div class="text-box partial" id="partial-trans">Waiting for ASR output...</div>
+            <div class="text-label">Finalized Text:</div>
+            <div class="text-box final" id="final-trans"></div>
+        </div>
+    </div>
 
-    <script src="/static/script.js"></script>
+</div>
+
+<script src="/static/script.js"></script>
 </body>
 </html>
