@@ -2,58 +2,58 @@ import time
 import numpy as np
 from faster_whisper import WhisperModel
 
-from config import ASR_MODEL_SIZE, DEVICE, COMPUTE_TYPE, SOURCE_LANG
+from config import ASR_MODEL_SIZE, DEVICE, COMPUTE_TYPE, SOURCE_LANG, ASR_BEAM_SIZE
 from state import state
 
-model = WhisperModel(
-    ASR_MODEL_SIZE,
-    device=DEVICE,
-    compute_type=COMPUTE_TYPE
-)
+print(f"[asr] Loading faster-whisper '{ASR_MODEL_SIZE}' on {DEVICE}/{COMPUTE_TYPE}...")
+model = WhisperModel(ASR_MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE)
+print("[asr] Model ready.")
 
 
-def preprocess_audio(audio_frames):
+def preprocess_audio(audio_frames: list) -> np.ndarray | None:
     if not audio_frames:
         return None
-
     audio = np.concatenate(audio_frames, axis=0)
-
     if audio.ndim > 1:
         audio = audio.squeeze()
-
-    audio = audio.astype("float32")
-    audio = np.ascontiguousarray(audio)
-    return audio
+    return np.ascontiguousarray(audio.astype("float32"))
 
 
-def transcribe_segment(audio_frames):
+def transcribe_segment(audio_frames: list) -> str:
     audio = preprocess_audio(audio_frames)
     if audio is None or len(audio) == 0:
         return ""
 
-    start_time = time.time()
+    state["asr_status"] = "processing"
+    t0 = time.time()
 
     segments, info = model.transcribe(
         audio,
         language=SOURCE_LANG,
         task="transcribe",
-        beam_size=1,
+        beam_size=ASR_BEAM_SIZE,
         best_of=1,
         temperature=0.0,
         condition_on_previous_text=False,
-        vad_filter=False
+        # ── Fixes तो तो तो / बच्च्च hallucinations ──
+        no_speech_threshold=0.6,         # drop if Whisper says no speech
+        log_prob_threshold=-1.0,         # drop very low confidence
+        compression_ratio_threshold=2.4, # drop repetitive output
+        # ── Internal VAD as second pass ──────────────
+        vad_filter=True,
+        vad_parameters={
+            "min_silence_duration_ms": 300,
+            "threshold": 0.45,
+        },
     )
 
-    text_parts = []
-    for seg in segments:
-        seg_text = seg.text.strip()
-        if seg_text:
-            text_parts.append(seg_text)
-
+    text_parts = [seg.text.strip() for seg in segments if seg.text.strip()]
     final_text = " ".join(text_parts).strip()
-    state["asr_latency_ms"] = round((time.time() - start_time) * 1000, 2)
 
-    print("Detected language:", info.language, "prob:", info.language_probability)
-    print("Transcript:", final_text)
+    state["asr_latency_ms"]   = round((time.time() - t0) * 1000, 2)
+    state["asr_status"]       = "idle"
+    state["total_words_asr"] += len(final_text.split()) if final_text else 0
 
+    print(f"[asr] lang={info.language}({info.language_probability:.2f})  "
+          f"lat={state['asr_latency_ms']}ms  text={final_text}")
     return final_text
