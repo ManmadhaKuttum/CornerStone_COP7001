@@ -1,23 +1,24 @@
 import queue
+import numpy as np
 import sounddevice as sd
-from config import SAMPLE_RATE, FRAME_SIZE, QUEUE_MAXSIZE
+from config import SAMPLE_RATE, FRAME_SAMPLES, CHANNELS, AUDIO_QUEUE_SIZE
 
-audio_queue = queue.Queue(maxsize=QUEUE_MAXSIZE)
-
+audio_queue = queue.Queue(maxsize=AUDIO_QUEUE_SIZE)
 
 def audio_callback(indata, frames, time_info, status):
-    if status:
-        print("Audio status:", status)
+    frame = indata[:, 0].astype(np.float32).copy()
     try:
-        audio_queue.put_nowait(indata.copy())
+        audio_queue.put_nowait(frame)
     except queue.Full:
         pass
 
-
-def start_audio_stream():
-    return sd.InputStream(
+def start_mic():
+    stream = sd.InputStream(
         samplerate=SAMPLE_RATE,
-        channels=1,
-        blocksize=FRAME_SIZE,
+        channels=CHANNELS,
+        blocksize=FRAME_SAMPLES,
+        dtype="float32",
         callback=audio_callback,
     )
+    stream.start()
+    return stream
