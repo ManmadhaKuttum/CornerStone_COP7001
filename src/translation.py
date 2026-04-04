@@ -1,104 +1,95 @@
-"""
-translation.py — Phase 3
-IndicTrans2 (AI4Bharat / IIT Madras) — Hindi → Telugu, fully offline.
-Install: pip install transformers sentencepiece torch
-Model downloads on first run: ai4bharat/indictrans2-indic-indic-dist-200M (~800MB)
-"""
-
-from email.mime import text
-import time
 import queue
 import threading
+import time
+import ctranslate2
+from transformers import AutoTokenizer
 
-from torch import device
-
+from config import SRC_LANG, TGT_LANG, MAX_LENGTH
+from asr import trans_text_queue
 from state import state
-from config import INDICTRANS_SRC, INDICTRANS_TGT, TRANS_DEVICE
 
-asr_to_trans_queue = queue.Queue(maxsize=50)
+# --- THE FIX: We define the queue physically here, and remove the bad import ---
+tts_text_queue = queue.Queue(maxsize=20)
 
-def _load_model():
-    from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
-    import torch
+_translator = None
+_tok = None
 
-    name = "facebook/nllb-200-distilled-600M"
-    print(f"[trans] Loading NLLB-600M on {TRANS_DEVICE}...")
-    tok   = AutoTokenizer.from_pretrained(name)
-    model = AutoModelForSeq2SeqLM.from_pretrained(name)
-    safe_device = "cpu" if TRANS_DEVICE == "mps" else TRANS_DEVICE
-    model = model.to(safe_device)
-    model.eval()
-    print(f"[trans] NLLB ready on {safe_device}.")
-    return tok, model, safe_device
+def _load_translation():
+    global _translator, _tok
+    print("⏳ Loading local CTranslate2 NLLB Engine...")
+    
+    # Load the tokenizer
+    model_name = "facebook/nllb-200-distilled-600M"
+    _tok = AutoTokenizer.from_pretrained(model_name)
+    
+    # Point directly to the folder you just compiled!
+    ct2_model_path = "pretrained/nllb-200-distilled-600M-int8" 
+    
+    # Load the C++ engine
+    _translator = ctranslate2.Translator(
+        ct2_model_path, 
+        device="cpu", 
+        compute_type="int8"
+    )
+    state["trans_status"] = "ready"
 
+def _translate(text: str) -> tuple[str, int]:
+    t0 = time.time()
+    
+    _tok.src_lang = SRC_LANG
+    source = _tok.convert_ids_to_tokens(_tok.encode(text))
+    
+    # CTranslate2 native execution (Greedy Search by default)
+    results = _translator.translate_batch(
+        [source], 
+        target_prefix=[[TGT_LANG]],
+        max_decoding_length=MAX_LENGTH
+    )
+    
+    target = results[0].hypotheses[0][1:]
+    result = _tok.decode(_tok.convert_tokens_to_ids(target))
+    
+    latency = int((time.time() - t0) * 1000)
+    return result, latency
 
-def _translate(text: str, tok, model, device: str) -> str:
-    import torch
-    inputs = tok(
-        text,
-        return_tensors="pt",
-        truncation=True,
-        max_length=512,
-    ).to(device)
-
-    target_lang_id = tok.lang_code_to_id["tel_Telu"]
-    # Set source language for NLLB
-    tok.src_lang = "hin_Deva"
-    inputs = tok(text, return_tensors="pt",
-                truncation=True, max_length=512).to(device)
-    with torch.no_grad():
-        
-        out = model.generate(
-            **inputs,
-            forced_bos_token_id=target_lang_id,
-            num_beams=4,
-            max_length=512,
-        )
-    return tok.decode(out[0], skip_special_tokens=True)
-
-
-def _worker(tok, model, device: str):
-    state["trans_status"]  = "idle"
-    state["trans_backend"] = f"NLLB-600M ({device})"
-
+def run_translation():
     while True:
         try:
-            item = asr_to_trans_queue.get(timeout=1.0)
+            text = trans_text_queue.get(timeout=1.0)
         except queue.Empty:
             continue
 
-        text = item.get("text", "").strip()
         if not text:
             continue
 
-        state["trans_status"] = "processing"
-        t0 = time.time()
+        translated, latency = _translate(text)
+        if not translated:
+            continue
+
+        onset = state.get("speech_onset_time")
+        e2e = int((time.time() - onset) * 1000) if onset else 0
+
+        # RTF Calculation
+        total_processing_time_sec = (state["asr_latency_ms"] + latency) / 1000.0
+        audio_length = state.get("last_audio_duration", 1.0) 
+        
+        if audio_length > 0:
+            current_rtf = total_processing_time_sec / audio_length
+            state["rtf"] = round(current_rtf, 2)
+
+        state["final_translation"] = (
+            state["final_translation"] + " " + translated
+            if state["final_translation"] else translated
+        )
+        state["trans_latency_ms"] = latency
+        state["e2e_latency_ms"] = e2e
+        state["total_words_trans"] += len(translated.split())
+
         try:
-            translated = _translate(text, tok, model, device)
-            lat = round((time.time() - t0) * 1000, 2)
-
-            state["final_translation"]   = translated
-            state["partial_translation"] = ""
-            state["trans_latency_ms"]    = lat
-            state["total_words_trans"]  += len(translated.split())
-
-            if state["_e2e_start"] > 0:
-                state["e2e_latency_ms"] = round(
-                    (time.time() - state["_e2e_start"]) * 1000, 2
-                )
-
-            print(f"[trans] lat={lat}ms  text={translated}")
-        except Exception as e:
-            print(f"[trans] Error: {e}")
-
-        state["trans_status"] = "idle"
-
-
+            tts_text_queue.put_nowait(translated)
+        except queue.Full:
+            pass
 def start_translation():
-    try:
-        tok, model, device = _load_model()
-        threading.Thread(target=_worker, args=(tok, model, device), daemon=True).start()
-    except Exception as e:
-        print(f"[trans] Failed to load: {e}")
-        state["trans_status"]  = "unavailable"
-        state["trans_backend"] = "unavailable"
+    t = threading.Thread(target=run_translation, daemon=True)
+    t.start()
+    return t        
