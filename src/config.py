@@ -1,50 +1,44 @@
-import platform
-import subprocess
 import torch
 
-# ── Audio ─────────────────────────────────────────────────────────────────────
-SAMPLE_RATE    = 16000
-FRAME_DURATION = 0.032   # was 0.02
-FRAME_SIZE     = int(SAMPLE_RATE * FRAME_DURATION)  # 512 samples
-QUEUE_MAXSIZE  = 200
-
-# ── Languages ─────────────────────────────────────────────────────────────────
-SOURCE_LANG      = "hi"          # Hindi  (ASR)
-TARGET_LANG      = "te"          # Telugu (Translation)
-INDICTRANS_SRC   = "hin_Deva"
-INDICTRANS_TGT   = "tel_Telu"
-
-# ── VAD (Silero) ──────────────────────────────────────────────────────────────
-VAD_THRESHOLD       = 0.6    # raised — reduces noise triggers
-SILENCE_DURATION    = 0.8    # seconds silence before flush
-MAX_SPEECH_DURATION = 8.0
-MIN_SPEECH_DURATION = 0.5
-
-# ── ASR ───────────────────────────────────────────────────────────────────────
-ASR_MODEL_SIZE = "small"
-ASR_BEAM_SIZE  = 5
-
-# ── Device: faster-whisper doesn't support MPS, use cpu+int8 on Mac ──────────
-def _has_nvidia():
-    try:
-        subprocess.check_output(["nvidia-smi"], stderr=subprocess.STDOUT)
-        return True
-    except Exception:
-        return False
-
 if torch.cuda.is_available():
-    DEVICE       = "cuda"
-    COMPUTE_TYPE = "float16"
+    DEVICE = "cuda"
+    COMPUTE_TYPE = "int8_float16"
+elif torch.backends.mps.is_available():
+    DEVICE = "cpu"
+    COMPUTE_TYPE = "int8"
 else:
-    DEVICE       = "cpu"
+    DEVICE = "cpu"
     COMPUTE_TYPE = "int8"
 
-# Translation can use MPS on Mac
-if torch.cuda.is_available():
-    TRANS_DEVICE = "cuda"
-elif platform.system() == "Darwin" and torch.backends.mps.is_available():
-    TRANS_DEVICE = "mps"
-else:
-    TRANS_DEVICE = "cpu"
+SAMPLE_RATE     = 16000
+FRAME_DURATION  = 0.032
+FRAME_SAMPLES   = int(SAMPLE_RATE * FRAME_DURATION)
+CHANNELS        = 1
 
-print(f"[config] device={DEVICE}  compute={COMPUTE_TYPE}  trans_device={TRANS_DEVICE}")
+VAD_THRESHOLD       = 0.6
+SILENCE_DURATION    = 0.55
+MAX_UTTERANCE_SEC   = 8.0
+SILENCE_FRAMES      = int(SILENCE_DURATION / FRAME_DURATION)
+MAX_FRAMES          = int(MAX_UTTERANCE_SEC / FRAME_DURATION)
+
+ASR_MODEL       = "base"
+ASR_LANGUAGE    = "hi"
+BEAM_SIZE       = 1
+NO_SPEECH_THRESHOLD         = 0.6
+COMPRESSION_RATIO_THRESHOLD = 2.4
+LOG_PROB_THRESHOLD          = -1.0
+
+TRANSLATION_MODEL   = "facebook/nllb-200-distilled-600M"
+SRC_LANG            = "hin_Deva"
+TGT_LANG            = "tel_Telu"
+NUM_BEAMS           = 1
+MAX_LENGTH          = 128
+
+TTS_BACKEND         = "indic"
+TTS_LANGUAGE        = "te"
+
+AUDIO_QUEUE_SIZE    = 200
+TRANS_QUEUE_SIZE    = 50
+TTS_QUEUE_SIZE      = 20
+
+WS_HZ               = 10
