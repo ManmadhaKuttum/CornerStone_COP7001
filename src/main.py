@@ -1,69 +1,97 @@
+import asyncio
+import json
 import os
 import time
-import asyncio
+from contextlib import asynccontextmanager
 import uvicorn
 
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from audio import start_audio_stream
-from segmenter import start_segmenter
-from translation import start_translation
 from state import state
+from audio import start_mic
+# Import the load functions directly!
+from segmenter import start_segmenter, _load_vad
+from asr import start_asr, _load_asr
+from translation import start_translation, _load_translation
+from tts import start_tts, _load_tts
+from config import WS_HZ
 
-BASE_DIR      = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DASHBOARD_DIR = os.path.join(BASE_DIR, "dashboard")
+DASHBOARD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dashboard")
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("\n🚀 [SYSTEMS BOOT] Loading models securely on MAIN THREAD...")
+
+    # 1. Load all ML models sequentially on the main OS thread (Linux/Mac safe)
+    print("⏳ Loading VAD...")
+    _load_vad()
+    
+    print("⏳ Loading ASR (Whisper)...")
+    _load_asr()
+    
+    print("⏳ Loading Translation...")
+    _load_translation()
+    
+    print("⏳ Loading TTS...")
+    _load_tts()
+    
+    print("\n✅ All models loaded into memory safely.")
+    print("🚀 Igniting concurrent worker threads...")
+
+    # 2. Now it is 100% safe to start the background threads
+    start_mic()
+    start_segmenter()
+    start_asr()
+    start_translation()
+    start_tts()
+
+    asyncio.create_task(broadcast_state())
+    print("🎙️ Pipeline fully operational! You can now speak.\n")
+    yield
+
+app = FastAPI(lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=DASHBOARD_DIR), name="static")
 
+_clients: list[WebSocket] = []
 
 @app.get("/")
-async def serve_dashboard():
+async def index():
+    from fastapi.responses import FileResponse
     return FileResponse(os.path.join(DASHBOARD_DIR, "index.html"))
 
-
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
+async def websocket_endpoint(ws: WebSocket):
+    await ws.accept()
+    _clients.append(ws)
     try:
         while True:
-            await websocket.send_json({
-                # Phase 1
-                "energy":               round(state["energy"], 5),
-                "frames":               state["frames"],
-                "runtime":              round(time.time() - state["start_time"], 2),
-                "alive":                state["alive"],
-                # Phase 2
-                "speech_active":        state["speech_active"],  # matches script.js
-                "is_speaking":          state["speech_active"],  # alias for dashboard compat
-                "partial_transcript":   state["partial_transcript"],
-                "final_transcript":     state["final_transcript"],
-                "asr_latency_ms":       state["asr_latency_ms"],
-                "asr_status":           state["asr_status"],
-                "total_words_asr":      state["total_words_asr"],
-                # Phase 3
-                "partial_translation":  state["partial_translation"],
-                "final_translation":    state["final_translation"],
-                "trans_latency_ms":     state["trans_latency_ms"],
-                "trans_status":         state["trans_status"],
-                "trans_backend":        state["trans_backend"],
-                "total_words_trans":    state["total_words_trans"],
-                # E2E
-                "e2e_latency_ms":       state["e2e_latency_ms"],
-                # Phase 4
-                "tts_status":           state["tts_status"],
-            })
-            await asyncio.sleep(0.1)
+            await ws.receive_text()
     except WebSocketDisconnect:
-        print("Client disconnected cleanly.")
+        if ws in _clients:
+            _clients.remove(ws)
 
+async def broadcast_state():
+    interval = 1.0 / WS_HZ
+    while True:
+        await asyncio.sleep(interval)
+        payload = {
+            **state,
+            "runtime": int(time.time() - state["start_time"]),
+            "speech_onset_time": None,
+        }
+        msg = json.dumps(payload)
+        dead = []
+        for ws in _clients:
+            try:
+                await ws.send_text(msg)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            if ws in _clients:
+                _clients.remove(ws)
 
 if __name__ == "__main__":
-    start_translation()   # load IndicTrans2 first
-    start_segmenter()     # load Silero-VAD + start pipeline
-
-    with start_audio_stream():
-        print("[*] Pipeline running → http://localhost:8000")
-        uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
