@@ -1,124 +1,108 @@
-let ws;
+let ws = null;
 
 function connect() {
-    ws = new WebSocket("ws://" + location.host + "/ws");
+    ws = new WebSocket(`ws://${location.host}/ws`);
 
-    ws.onopen = function () {
-        let conn = document.getElementById("conn-status");
-        conn.innerText = "🟢 Connected";
-        conn.className = "status-pill online";
+    ws.onopen = () => {
+        document.getElementById("conn-status").className = "status-pill online";
+        document.getElementById("conn-status").textContent = "🟢 Connected";
     };
 
-    ws.onclose = function () {
-        let conn = document.getElementById("conn-status");
-        conn.innerText = "🔴 Disconnected";
-        conn.className = "status-pill offline";
-        setTimeout(connect, 2000);  // auto-reconnect
+    ws.onclose = () => {
+        document.getElementById("conn-status").className = "status-pill offline";
+        document.getElementById("conn-status").textContent = "🔴 Disconnected";
+        setTimeout(connect, 2000);
     };
 
-    ws.onerror = function () { ws.close(); };
+    ws.onerror = () => ws.close();
 
-    ws.onmessage = function (event) {
-        let data = JSON.parse(event.data);
-
-        // ── Audio Meter ───────────────────────────────────────────────────
-        let energyPercent = Math.min(data.energy * 2000, 100);
-        document.getElementById("energyFill").style.width = energyPercent + "%";
-        document.getElementById("energy-val").innerText = data.energy.toFixed(5);
-        document.getElementById("frames-val").innerText = data.frames.toLocaleString();
-
-        // ── Runtime ───────────────────────────────────────────────────────
-        if (document.getElementById("runtime-val")) {
-            document.getElementById("runtime-val").innerText = formatRuntime(data.runtime);
-        }
-
-        // ── Speaking Indicator (fix: use speech_active not is_speaking) ───
-        let speakInd = document.getElementById("speaking-indicator");
-        if (data.speech_active) {
-            speakInd.innerText = "🗣️ Speaking...";
-            speakInd.className = "speaking-indicator active";
-        } else {
-            speakInd.innerText = "🔇 Silence";
-            speakInd.className = "speaking-indicator";
-        }
-
-        // ── Liveness Dots ─────────────────────────────────────────────────
-        document.querySelector("#badge-mic .dot").className = "dot active";
-
-        let asrDot = document.querySelector("#badge-asr .dot");
-        if (data.asr_status === "processing") asrDot.className = "dot processing";
-        else if (data.asr_status === "idle")  asrDot.className = "dot active";
-        else                                   asrDot.className = "dot";
-
-        let transDot = document.querySelector("#badge-trans .dot");
-        if (data.trans_status === "processing")    transDot.className = "dot processing";
-        else if (data.trans_status === "idle")      transDot.className = "dot active";
-        else if (data.trans_status === "unavailable") transDot.className = "dot"; // grey
-        else                                          transDot.className = "dot";
-
-        let ttsDot = document.querySelector("#badge-tts .dot");
-        ttsDot.className = data.tts_status === "playing" ? "dot active" : "dot";
-
-        // ── Latency ───────────────────────────────────────────────────────
-        setLatency("lat-asr",   data.asr_latency_ms);
-        setLatency("lat-trans", data.trans_latency_ms);
-        setLatency("lat-e2e",   data.e2e_latency_ms);
-
-        // ── Translation backend badge ─────────────────────────────────────
-        let backendEl = document.getElementById("trans-backend");
-        if (backendEl && data.trans_backend && data.trans_backend !== "loading") {
-            backendEl.innerText = "⚙ " + data.trans_backend;
-        }
-
-        // ── Transcription ─────────────────────────────────────────────────
-        document.getElementById("partial-asr").innerText =
-            data.partial_transcript || "Waiting for speech...";
-        if (data.final_transcript) {
-            let el = document.getElementById("final-asr");
-            el.innerText = data.final_transcript;
-            el.scrollTop = el.scrollHeight;
-        }
-
-        // ── Translation ───────────────────────────────────────────────────
-        document.getElementById("partial-trans").innerText =
-            data.partial_translation || "Waiting for ASR output...";
-        if (data.final_translation) {
-            let el = document.getElementById("final-trans");
-            el.innerText = data.final_translation;
-            el.scrollTop = el.scrollHeight;
-        }
-
-        // ── TTS / Playback ────────────────────────────────────────────────
-        let playbackStatus = document.getElementById("playback-status");
-        if (data.tts_status === "playing") {
-            playbackStatus.innerText = "🔊 Playing Translated Audio...";
-            playbackStatus.className = "playback-active";
-        } else {
-            playbackStatus.innerText = "🔇 Idle — Waiting for finalized translation";
-            playbackStatus.className = "playback-idle";
-        }
-
-        // ── Word counts ───────────────────────────────────────────────────
-        if (document.getElementById("words-asr"))
-            document.getElementById("words-asr").innerText = data.total_words_asr || 0;
-        if (document.getElementById("words-trans"))
-            document.getElementById("words-trans").innerText = data.total_words_trans || 0;
+    ws.onmessage = (event) => {
+        const d = JSON.parse(event.data);
+        update(d);
     };
 }
 
-function setLatency(id, val) {
-    let el = document.getElementById(id);
-    if (!el) return;
-    if (!val || val === 0) { el.innerText = "—"; el.style.color = ""; return; }
-    el.innerText = Math.round(val);
-    if (val < 1500)       el.style.color = "var(--accent-green)";
-    else if (val < 3000)  el.style.color = "var(--accent-warning)";
-    else                  el.style.color = "#ef4444";
+function setDot(id, status) {
+    const badge = document.getElementById(id);
+    if (!badge) return;
+    const dot = badge.querySelector(".dot");
+    dot.className = "dot";
+    if (status === "ready" || status === "active" || status === "idle") {
+        dot.classList.add("active");
+    } else if (status === "loading" || status === "speaking") {
+        dot.classList.add("processing");
+    }
 }
 
-function formatRuntime(s) {
-    let h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60);
-    return h > 0 ? `${h}h ${m}m ${sec}s` : m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+function colorLatency(el, ms) {
+    el.className = "lat-value";
+    if (ms > 3000) el.classList.add("bad");
+    else if (ms > 2000) el.classList.add("warn");
+}
+
+function update(d) {
+    // Runtime
+    document.getElementById("runtime-val").textContent = d.runtime + "s";
+
+    // Liveness
+    setDot("badge-mic", d.frames > 0 ? "ready" : "loading");
+    setDot("badge-asr", d.asr_status);
+    setDot("badge-trans", d.trans_status);
+    setDot("badge-tts", d.tts_status === "speaking" ? "speaking" : d.tts_status.includes("ready") ? "ready" : "loading");
+
+    // Speaking indicator
+    const spk = document.getElementById("speaking-indicator");
+    if (d.speech_active) {
+        spk.textContent = "🎙️ Speaking...";
+        spk.className = "speaking-indicator active";
+    } else {
+        spk.textContent = "🔇 Silence";
+        spk.className = "speaking-indicator";
+    }
+
+    // Energy meter
+    const pct = Math.min(100, d.energy * 800);
+    document.getElementById("energyFill").style.width = pct + "%";
+    document.getElementById("energy-val").textContent = d.energy.toFixed(5);
+    document.getElementById("frames-val").textContent = d.frames.toLocaleString();
+    document.getElementById("words-asr").textContent = d.total_words_asr;
+    document.getElementById("words-trans").textContent = d.total_words_trans;
+
+    // Latency cards
+    const asrEl = document.getElementById("lat-asr");
+    const trEl = document.getElementById("lat-trans");
+    const ttsEl = document.getElementById("lat-tts");
+    const e2eEl = document.getElementById("lat-e2e");
+
+    if (d.asr_latency_ms) {
+        asrEl.textContent = d.asr_latency_ms + " ms";
+        colorLatency(asrEl, d.asr_latency_ms);
+    }
+    if (d.trans_latency_ms) {
+        trEl.textContent = d.trans_latency_ms + " ms";
+        colorLatency(trEl, d.trans_latency_ms);
+    }
+    if (d.tts_latency_ms) {
+        ttsEl.textContent = d.tts_latency_ms + " ms";
+    }
+    if (d.e2e_latency_ms) {
+        e2eEl.textContent = d.e2e_latency_ms + " ms";
+        colorLatency(e2eEl, d.e2e_latency_ms);
+    }
+
+    if (d.trans_backend) {
+        document.getElementById("trans-backend").textContent = d.trans_backend;
+    }
+
+    // Transcripts
+    if (d.partial_transcript !== undefined)
+        document.getElementById("partial-asr").textContent = d.partial_transcript || "Listening...";
+    if (d.final_transcript !== undefined)
+        document.getElementById("final-asr").textContent = d.final_transcript;
+    if (d.partial_translation !== undefined)
+        document.getElementById("partial-trans").textContent = d.partial_translation || "Waiting...";
+    if (d.final_translation !== undefined)
+        document.getElementById("final-trans").textContent = d.final_translation;
 }
 
 connect();

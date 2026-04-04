@@ -23,7 +23,6 @@ body {
     flex-direction: column;
 }
 
-/* ── Header ── */
 .header {
     display: flex;
     justify-content: space-between;
@@ -45,11 +44,10 @@ body {
 .status-pill.online  { background: rgba(16,185,129,0.2); color: var(--accent-green); }
 .status-pill.offline { background: rgba(239,68,68,0.2);  color: #ef4444; }
 
-/* ── Grid: 3 rows, fits viewport ── */
 .dashboard-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    grid-template-rows: auto auto 1fr; /* row 3 stretches to fill */
+    grid-template-rows: auto auto 1fr;
     gap: 10px;
     width: 100%;
     max-width: 1400px;
@@ -78,7 +76,6 @@ body {
     flex-shrink: 0;
 }
 
-/* ── Liveness ── */
 .liveness-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .badge {
     background: var(--bg-color);
@@ -109,7 +106,6 @@ body {
     border-color: var(--accent-blue);
 }
 
-/* ── Audio meter ── */
 .meter {
     width: 100%;
     height: 18px;
@@ -132,7 +128,6 @@ body {
     color: var(--text-muted);
 }
 
-/* ── Latency ── */
 .latency-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; }
 .lat-card {
     background: var(--bg-color);
@@ -145,8 +140,9 @@ body {
 .lat-label { font-size: 10px; color: var(--text-muted); margin-top: 4px; }
 .lat-card.highlight { border-color: var(--accent-blue); }
 .lat-card.highlight .lat-value { color: var(--accent-blue); }
+.lat-value.warn { color: var(--accent-warning); }
+.lat-value.bad  { color: #ef4444; }
 
-/* ── Transcript / Translation — fills row 3 ── */
 .dual-text {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -169,7 +165,6 @@ body {
     flex-shrink: 0;
 }
 
-/* Partial — fixed height, italic */
 .text-box {
     background: var(--bg-color);
     border: 1px solid var(--border-color);
@@ -185,12 +180,11 @@ body {
     min-height: 40px;
 }
 
-/* Finalized — grows to fill remaining height, text always visible */
 .text-box.final {
     flex-grow: 1;
     overflow-y: auto;
     margin-bottom: 0;
-    color: var(--text-main);      /* ← was missing, caused invisible text */
+    color: var(--text-main);
     font-size: 15px;
     line-height: 1.6;
     min-height: 60px;
