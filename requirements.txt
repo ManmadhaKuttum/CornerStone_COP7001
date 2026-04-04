@@ -1,6 +1,50 @@
-fastapi==0.133.1
-uvicorn[standard]==0.41.0
-sounddevice==0.5.5
-numpy==2.4.2
-scipy==1.15.3
-faster-whisper==1.2.1
+# ─── Real-Time Speech Translation System ────────────────────────────────────
+# COP7001 CornerStone Project | Hindi → Telugu | Fully Offline
+#
+# Install:
+#   pip install -r requirements.txt
+#
+# One-time CTranslate2 model conversion (run once after install):
+#   ct2-opus-mt-converter --model facebook/nllb-200-distilled-600M \
+#       --output_dir pretrained/nllb-200-distilled-600M-int8 \
+#       --quantization int8
+#
+# macOS (Apple Silicon):
+#   brew install portaudio ffmpeg
+#
+# Linux:
+#   sudo apt-get install -y portaudio19-dev libsndfile1 ffmpeg alsa-utils
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Web framework ─────────────────────────────────────────────────────────────
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+websockets>=12.0
+
+# ── Audio capture / playback ──────────────────────────────────────────────────
+sounddevice>=0.4.6
+soundfile>=0.12.1
+numpy>=1.24.0
+
+# ── PyTorch (VAD + TTS run on CPU; MPS on Apple Silicon) ─────────────────────
+torch>=2.1.0
+torchaudio>=2.1.0
+
+# ── ASR — faster-whisper (CTranslate2 backend) ───────────────────────────────
+faster-whisper>=1.0.0
+
+# ── Translation — CTranslate2 NLLB engine + HuggingFace tokenizer ────────────
+ctranslate2>=4.0.0
+transformers>=4.38.0
+sentencepiece>=0.1.99
+sacremoses>=0.0.53
+tokenizers>=0.15.0
+huggingface-hub>=0.20.0
+
+# ── TTS — facebook/mms-tts-tel (VITS model via transformers) ─────────────────
+# VitsModel is included in transformers — no separate install needed.
+# accelerate is optional but speeds up model loading on first run.
+accelerate>=0.27.0
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+requests>=2.31.0
