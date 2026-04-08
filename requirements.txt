@@ -5,7 +5,7 @@
 #   pip install -r requirements.txt
 #
 # One-time CTranslate2 model conversion (run once after install):
-#   ct2-opus-mt-converter --model facebook/nllb-200-distilled-600M \
+#   ct2-transformers-converter --model facebook/nllb-200-distilled-600M \
 #       --output_dir pretrained/nllb-200-distilled-600M-int8 \
 #       --quantization int8
 #
