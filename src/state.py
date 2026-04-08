@@ -5,6 +5,7 @@ state = {
     "frames": 0,
     "speech_active": False,
     "start_time": time.time(),
+    "offline_mode": None,
     "asr_status": "loading",
     "trans_status": "loading",
     "tts_status": "idle",
