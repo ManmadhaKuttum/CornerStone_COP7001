@@ -17,6 +17,23 @@
     <div id="conn-status" class="status-pill offline">🔴 Disconnected</div>
 </div>
 
+<div class="demo-banner" id="demo-banner">
+    <div class="demo-title">Demo Mode Checklist</div>
+    <div class="demo-items">
+        <div class="demo-item" id="demo-link" data-label="Data Link">Data Link</div>
+        <div class="demo-item" id="demo-offline" data-label="Offline Mode">Offline Mode</div>
+        <div class="demo-item" id="demo-mic" data-label="Mic Live">Mic Live</div>
+        <div class="demo-item" id="demo-asr" data-label="ASR Ready">ASR Ready</div>
+        <div class="demo-item" id="demo-trans" data-label="Trans Ready">Trans Ready</div>
+        <div class="demo-item" id="demo-tts" data-label="TTS Ready">TTS Ready</div>
+        <div class="demo-item" id="demo-partial-asr" data-label="Partial ASR">Partial ASR</div>
+        <div class="demo-item" id="demo-final-asr" data-label="Final ASR">Final ASR</div>
+        <div class="demo-item" id="demo-partial-trans" data-label="Partial Trans">Partial Trans</div>
+        <div class="demo-item" id="demo-final-trans" data-label="Final Trans">Final Trans</div>
+        <div class="demo-item" id="demo-e2e" data-label="E2E Latency">E2E Latency</div>
+    </div>
+</div>
+
 <div class="dashboard-grid">
 
     <!-- Row 1, Col 1: Liveness -->
@@ -29,6 +46,7 @@
             <div class="badge" id="badge-tts"><span class="dot"></span> TTS</div>
         </div>
         <div class="speaking-indicator" id="speaking-indicator">🔇 Silence</div>
+        <div class="playback-status" id="playback-status">Playback: idle</div>
     </div>
 
     <!-- Row 1, Col 2: Audio -->

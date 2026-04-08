@@ -44,6 +44,54 @@ body {
 .status-pill.online  { background: rgba(16,185,129,0.2); color: var(--accent-green); }
 .status-pill.offline { background: rgba(239,68,68,0.2);  color: #ef4444; }
 
+.demo-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: linear-gradient(90deg, rgba(59,130,246,0.15), rgba(16,185,129,0.12));
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 8px 12px;
+    margin-bottom: 10px;
+    flex-shrink: 0;
+}
+.demo-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-main);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    white-space: nowrap;
+}
+.demo-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.demo-item {
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-color);
+    color: var(--text-muted);
+}
+.demo-item.pass {
+    color: var(--accent-green);
+    border-color: var(--accent-green);
+    background: rgba(16,185,129,0.12);
+}
+.demo-item.fail {
+    color: #ef4444;
+    border-color: #ef4444;
+    background: rgba(239,68,68,0.12);
+}
+.demo-item.warn {
+    color: var(--accent-warning);
+    border-color: var(--accent-warning);
+    background: rgba(245,158,11,0.12);
+}
+
 .dashboard-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -104,6 +152,32 @@ body {
     background: rgba(59,130,246,0.2);
     color: var(--accent-blue);
     border-color: var(--accent-blue);
+}
+.playback-status {
+    margin-top: 6px;
+    padding: 6px;
+    border-radius: 6px;
+    text-align: center;
+    font-weight: 600;
+    font-size: 12px;
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+}
+.playback-status.active {
+    color: var(--accent-green);
+    border-color: var(--accent-green);
+    background: rgba(16,185,129,0.15);
+}
+.playback-status.warn {
+    color: var(--accent-warning);
+    border-color: var(--accent-warning);
+    background: rgba(245,158,11,0.15);
+}
+.playback-status.bad {
+    color: #ef4444;
+    border-color: #ef4444;
+    background: rgba(239,68,68,0.15);
 }
 
 .meter {

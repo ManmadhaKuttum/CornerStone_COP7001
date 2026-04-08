@@ -1,16 +1,21 @@
 let ws = null;
+let wsConnected = false;
 
 function connect() {
     ws = new WebSocket(`ws://${location.host}/ws`);
 
     ws.onopen = () => {
+        wsConnected = true;
         document.getElementById("conn-status").className = "status-pill online";
         document.getElementById("conn-status").textContent = "🟢 Connected";
+        setDemoItem("demo-link", true);
     };
 
     ws.onclose = () => {
+        wsConnected = false;
         document.getElementById("conn-status").className = "status-pill offline";
         document.getElementById("conn-status").textContent = "🔴 Disconnected";
+        setDemoItem("demo-link", false);
         setTimeout(connect, 2000);
     };
 
@@ -40,6 +45,23 @@ function colorLatency(el, ms) {
     else if (ms > 2000) el.classList.add("warn");
 }
 
+function setDemoItem(id, ok, labelText) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove("pass", "fail", "warn");
+    const label = labelText || el.dataset.label || "";
+    if (ok === true) {
+        el.classList.add("pass");
+        el.textContent = "✓ " + label;
+    } else if (ok === false) {
+        el.classList.add("fail");
+        el.textContent = "✗ " + label;
+    } else {
+        el.classList.add("warn");
+        el.textContent = "• " + label;
+    }
+}
+
 function update(d) {
     // Runtime
     document.getElementById("runtime-val").textContent = d.runtime + "s";
@@ -59,6 +81,42 @@ function update(d) {
         spk.textContent = "🔇 Silence";
         spk.className = "speaking-indicator";
     }
+
+    // Playback status
+    const pb = document.getElementById("playback-status");
+    if (pb) {
+        const tts = (d.tts_status || "").toLowerCase();
+        pb.className = "playback-status";
+        if (tts.includes("speaking")) {
+            pb.textContent = "Playback: speaking";
+            pb.classList.add("active");
+        } else if (tts.includes("ready") || tts.includes("idle")) {
+            pb.textContent = "Playback: idle";
+        } else if (tts.includes("loading")) {
+            pb.textContent = "Playback: loading";
+            pb.classList.add("warn");
+        } else if (tts.includes("unavailable")) {
+            pb.textContent = "Playback: unavailable";
+            pb.classList.add("bad");
+        } else {
+            pb.textContent = "Playback: unknown";
+        }
+    }
+
+    // Demo checklist
+    setDemoItem("demo-link", wsConnected);
+    setDemoItem("demo-offline", d.offline_mode === true);
+    setDemoItem("demo-mic", d.frames > 0);
+    setDemoItem("demo-asr", (d.asr_status || "").includes("ready"));
+    setDemoItem("demo-trans", (d.trans_status || "").includes("ready"));
+    setDemoItem("demo-tts", /(ready|idle|speaking)/.test((d.tts_status || "").toLowerCase()));
+    setDemoItem("demo-partial-asr", (d.partial_transcript || "").trim().length > 0);
+    setDemoItem("demo-final-asr", (d.final_transcript || "").trim().length > 0);
+    setDemoItem("demo-partial-trans", (d.partial_translation || "").trim().length > 0);
+    setDemoItem("demo-final-trans", (d.final_translation || "").trim().length > 0);
+    const e2eOk = (d.e2e_latency_ms || 0) > 0;
+    const e2eLabel = e2eOk ? `E2E ${d.e2e_latency_ms}ms` : "E2E Latency";
+    setDemoItem("demo-e2e", e2eOk, e2eLabel);
 
     // Energy meter
     const pct = Math.min(100, d.energy * 800);
