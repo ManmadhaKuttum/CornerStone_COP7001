@@ -4,8 +4,9 @@ import time
 import os
 import torch
 import soundfile as sf
-from transformers import VitsModel, AutoTokenizer
 
+from config import OFFLINE_MODE, HF_HOME, TTS_MODEL_ID
+from transformers import VitsModel, AutoTokenizer
 from translation import tts_text_queue
 from state import state
 
@@ -16,14 +17,27 @@ def _load_tts():
     global _tts_model, _tts_tokenizer
     try:
         print("Loading Telugu TTS Model (MMS)...")
-        model_id = "facebook/mms-tts-tel"
-        _tts_tokenizer = AutoTokenizer.from_pretrained(model_id)
+        model_id = TTS_MODEL_ID
+        _tts_tokenizer = AutoTokenizer.from_pretrained(
+            model_id,
+            cache_dir=HF_HOME,
+            local_files_only=OFFLINE_MODE,
+        )
         # Force model strictly to CPU to prevent memory allocator crashes
-        _tts_model = VitsModel.from_pretrained(model_id).to("cpu")
+        _tts_model = VitsModel.from_pretrained(
+            model_id,
+            cache_dir=HF_HOME,
+            local_files_only=OFFLINE_MODE,
+        ).to("cpu")
         state["tts_status"] = "ready (MMS-TTS)"
     except Exception as e:
-        print(f"⚠️ TTS failed to load: {e}")
         state["tts_status"] = "unavailable"
+        print(f"⚠️ TTS failed to load: {e}")
+        if OFFLINE_MODE:
+            raise RuntimeError(
+                "Offline mode enabled but TTS model is missing from local cache. "
+                "Download the model to the HF cache path first."
+            ) from e
 def _synthesize_and_play(text: str) -> int:
     t0 = time.time()
     
@@ -71,9 +85,14 @@ def run_tts():
     # Model is already loaded by main.py, so we just loop
     while True:
         try:
-            text = tts_text_queue.get(timeout=1.0)
+            item = tts_text_queue.get(timeout=1.0)
         except queue.Empty:
             continue
+
+        if isinstance(item, tuple) and len(item) == 2:
+            text, onset_time = item
+        else:
+            text, onset_time = item, None
 
         if not text:
             continue
@@ -81,6 +100,8 @@ def run_tts():
         state["tts_status"] = "speaking"
         latency = _synthesize_and_play(text)
         state["tts_latency_ms"] = latency
+        if onset_time is not None:
+            state["e2e_latency_ms"] = int((time.time() - onset_time) * 1000)
         state["tts_status"] = "idle"
 
 def start_tts():
