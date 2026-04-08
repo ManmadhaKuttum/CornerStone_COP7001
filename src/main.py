@@ -7,6 +7,13 @@ import uvicorn
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+from config import WS_HZ, OFFLINE_MODE, HF_HOME
+
+if OFFLINE_MODE:
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+    os.environ.setdefault("HF_HOME", HF_HOME)
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
@@ -17,13 +24,13 @@ from segmenter import start_segmenter, _load_vad
 from asr import start_asr, _load_asr
 from translation import start_translation, _load_translation
 from tts import start_tts, _load_tts
-from config import WS_HZ
 
 DASHBOARD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dashboard")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("\n🚀 [SYSTEMS BOOT] Loading models securely on MAIN THREAD...")
+    state["offline_mode"] = OFFLINE_MODE
 
     # 1. Load all ML models sequentially on the main OS thread (Linux/Mac safe)
     print("⏳ Loading VAD...")
