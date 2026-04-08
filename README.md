@@ -61,6 +61,56 @@ http://localhost:8000
 
 ---
 
+## Offline-Ready Setup (No Runtime Downloads)
+
+This project now defaults to offline mode. It will not download models at runtime.
+Make sure the following assets are present locally before demo day.
+
+1. Silero VAD repo (local path used by `SILERO_VAD_PATH`)
+
+If you already downloaded Silero VAD (or it exists in your Torch Hub cache),
+just point to it:
+```bash
+export SILERO_VAD_PATH="/absolute/path/to/silero-vad"
+```
+
+Optional (first-time setup only):
+```bash
+git clone https://github.com/snakers4/silero-vad pretrained/silero-vad
+```
+
+2. Faster-Whisper model directory (set `WHISPER_MODEL_PATH`)
+
+Example:
+```bash
+export WHISPER_MODEL_PATH="/absolute/path/to/whisper-small"
+```
+
+3. Hugging Face cache for tokenizer + TTS (stored under `pretrained/hf`)
+
+Example (run once online to cache locally):
+```bash
+export HF_HOME="$(pwd)/pretrained/hf"
+python - <<'PY'
+from transformers import AutoTokenizer, VitsModel
+AutoTokenizer.from_pretrained("facebook/nllb-200-distilled-600M")
+AutoTokenizer.from_pretrained("facebook/mms-tts-tel")
+VitsModel.from_pretrained("facebook/mms-tts-tel")
+PY
+```
+
+4. CTranslate2 NLLB model (already configured)
+
+```bash
+ct2-transformers-converter --model facebook/nllb-200-distilled-600M \
+    --output_dir pretrained/nllb-200-distilled-600M-int8 \
+    --quantization int8
+```
+
+If you want to allow downloads again, set `OFFLINE_MODE = False` in `src/config.py`.
+
+---
+
 ## How to Use
 
 1. Start the server
