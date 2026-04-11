@@ -1,116 +1,140 @@
-import queue
 import os
+import re
+import queue
 import threading
 import time
 import ctranslate2
-
-from config import SRC_LANG, TGT_LANG, MAX_LENGTH, OFFLINE_MODE, HF_HOME, TRANSLATION_TOKENIZER_ID
 from transformers import AutoTokenizer
+
+from config import (
+    SRC_LANG, TGT_LANG, MAX_LENGTH,
+    OFFLINE_MODE, HF_HOME, TRANSLATION_TOKENIZER_ID,
+    PROJECT_ROOT, TRANS_BEAMS, CT2_INTRA_THREADS, CT2_INTER_THREADS,
+)
 from asr import trans_text_queue
 from state import state
 
-# --- THE FIX: We define the queue physically here, and remove the bad import ---
-tts_text_queue = queue.Queue(maxsize=20)
+# Output queue to TTS thread.
+# Protocol: (text_str, onset_time_float)
+# Keep small to avoid long speaker backlog and stale e2e numbers.
+tts_text_queue = queue.Queue(maxsize=3)
 
 _translator = None
-_tok = None
+_tok        = None
 
 def _load_translation():
     global _translator, _tok
-    print("⏳ Loading local CTranslate2 NLLB Engine...")
-    
-    # Load the tokenizer
-    model_name = TRANSLATION_TOKENIZER_ID
+    print("⏳ Loading CTranslate2 NLLB engine...")
+
     _tok = AutoTokenizer.from_pretrained(
-        model_name,
+        TRANSLATION_TOKENIZER_ID,
         cache_dir=HF_HOME,
         local_files_only=OFFLINE_MODE,
     )
-    
-    # Point directly to the folder you just compiled! (relative to project root)
-    project_root = os.path.dirname(os.path.dirname(__file__))
-    ct2_model_path = os.path.join(project_root, "pretrained/nllb-200-distilled-600M-int8") 
 
-    if not os.path.isdir(ct2_model_path):
+    ct2_path = os.path.join(PROJECT_ROOT, "pretrained", "nllb-200-distilled-600M-int8")
+    if not os.path.isdir(ct2_path):
         raise RuntimeError(
-            "CTranslate2 NLLB model not found at "
-            f"{ct2_model_path}. Run the converter step once."
+            f"CTranslate2 NLLB model not found at {ct2_path}.\n"
+            "Run once:\n"
+            "  ct2-transformers-converter --model facebook/nllb-200-distilled-600M "
+            "--output_dir pretrained/nllb-200-distilled-600M-int8 --quantization int8"
         )
-    
-    # Load the C++ engine
+
     _translator = ctranslate2.Translator(
-        ct2_model_path, 
-        device="cpu", 
-        compute_type="int8"
+        ct2_path, device="cpu", compute_type="int8",
+        intra_threads=CT2_INTRA_THREADS,
+        inter_threads=CT2_INTER_THREADS,
     )
-    state["trans_status"] = "ready"
+    state["trans_status"]  = "ready"
+    state["trans_backend"] = "CTranslate2-NLLB-600M"
+    print("  ✅ Translation loaded")
+
+def _clean(text: str) -> str:
+    """Remove <unk> tokens and collapse extra whitespace."""
+    text = text.replace("<unk>", "")
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 
 def _translate(text: str) -> tuple[str, int]:
     t0 = time.time()
-    
     _tok.src_lang = SRC_LANG
-    source = _tok.convert_ids_to_tokens(_tok.encode(text))
-    
-    # CTranslate2 native execution (Greedy Search by default)
+    source  = _tok.convert_ids_to_tokens(_tok.encode(text))
     results = _translator.translate_batch(
-        [source], 
+        [source],
         target_prefix=[[TGT_LANG]],
-        max_decoding_length=MAX_LENGTH
+        max_decoding_length=MAX_LENGTH,
+        beam_size=TRANS_BEAMS,
+        no_repeat_ngram_size=3,
     )
-    
-    target = results[0].hypotheses[0][1:]
-    result = _tok.decode(_tok.convert_tokens_to_ids(target))
-    
+    target  = results[0].hypotheses[0][1:]
+    result  = _clean(_tok.decode(_tok.convert_tokens_to_ids(target)))
     latency = int((time.time() - t0) * 1000)
     return result, latency
 
 def run_translation():
+    last_partial_src = ""
+    last_partial_tgt = ""
+
     while True:
         try:
-            item = trans_text_queue.get(timeout=1.0)
-        except queue.Empty:
+            tag, text, onset_time = trans_text_queue.get(timeout=1.0)
+        except (queue.Empty, ValueError):
             continue
 
-        if isinstance(item, tuple) and len(item) == 3:
-            kind, text, onset_time = item
-        elif isinstance(item, tuple) and len(item) == 2:
-            kind, text = item
-            onset_time = None
-        else:
-            kind, text, onset_time = "final", item, None
-
         if not text:
+            continue
+
+        # If queue already has pending items, skip stale partial work and keep
+        # CPU available for final results.
+        if tag == "partial" and not trans_text_queue.empty():
+            continue
+
+        if tag == "partial" and text == last_partial_src:
+            if last_partial_tgt:
+                state["partial_translation"] = last_partial_tgt
             continue
 
         translated, latency = _translate(text)
         if not translated:
             continue
 
-        if kind == "partial":
+        if tag == "partial":
+            last_partial_src = text
+            last_partial_tgt = translated
             state["partial_translation"] = translated
             continue
 
-        # RTF Calculation
-        total_processing_time_sec = (state["asr_latency_ms"] + latency) / 1000.0
-        audio_length = state.get("last_audio_duration", 1.0) 
-        
-        if audio_length > 0:
-            current_rtf = total_processing_time_sec / audio_length
-            state["rtf"] = round(current_rtf, 2)
+        # RTF = (asr inference time + translation inference time) / audio duration
+        audio_dur = state.get("last_audio_duration", 1.0)
+        if audio_dur > 0:
+            total_proc = (state["asr_latency_ms"] + latency) / 1000.0
+            state["rtf"] = round(total_proc / audio_dur, 2)
 
         state["final_translation"] = (
             state["final_translation"] + " " + translated
             if state["final_translation"] else translated
         )
         state["partial_translation"] = ""
-        state["trans_latency_ms"] = latency
-        state["total_words_trans"] += len(translated.split())
+        last_partial_src = ""
+        last_partial_tgt = ""
+        state["trans_latency_ms"]    = latency
+        state["total_words_trans"]  += len(translated.split())
 
         try:
             tts_text_queue.put_nowait((translated, onset_time))
         except queue.Full:
-            pass
+            # Drop one oldest TTS item so speaker stays near real-time.
+            try:
+                tts_text_queue.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                tts_text_queue.put_nowait((translated, onset_time))
+            except queue.Full:
+                pass
+
 def start_translation():
-    t = threading.Thread(target=run_translation, daemon=True)
+    t = threading.Thread(target=run_translation, daemon=True, name="translation")
     t.start()
-    return t        
+    return t
