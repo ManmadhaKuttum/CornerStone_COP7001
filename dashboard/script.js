@@ -1,5 +1,11 @@
 let ws = null;
 let wsConnected = false;
+const seen = {
+    partialAsr: false,
+    finalAsr: false,
+    partialTrans: false,
+    finalTrans: false,
+};
 
 function connect() {
     ws = new WebSocket(`ws://${location.host}/ws`);
@@ -104,16 +110,21 @@ function update(d) {
     }
 
     // Demo checklist
+    if ((d.partial_transcript || "").trim().length > 0) seen.partialAsr = true;
+    if ((d.final_transcript || "").trim().length > 0) seen.finalAsr = true;
+    if ((d.partial_translation || "").trim().length > 0) seen.partialTrans = true;
+    if ((d.final_translation || "").trim().length > 0) seen.finalTrans = true;
+
     setDemoItem("demo-link", wsConnected);
     setDemoItem("demo-offline", d.offline_mode === true);
     setDemoItem("demo-mic", d.frames > 0);
     setDemoItem("demo-asr", (d.asr_status || "").includes("ready"));
     setDemoItem("demo-trans", (d.trans_status || "").includes("ready"));
     setDemoItem("demo-tts", /(ready|idle|speaking)/.test((d.tts_status || "").toLowerCase()));
-    setDemoItem("demo-partial-asr", (d.partial_transcript || "").trim().length > 0);
-    setDemoItem("demo-final-asr", (d.final_transcript || "").trim().length > 0);
-    setDemoItem("demo-partial-trans", (d.partial_translation || "").trim().length > 0);
-    setDemoItem("demo-final-trans", (d.final_translation || "").trim().length > 0);
+    setDemoItem("demo-partial-asr", seen.partialAsr);
+    setDemoItem("demo-final-asr", seen.finalAsr);
+    setDemoItem("demo-partial-trans", seen.partialTrans);
+    setDemoItem("demo-final-trans", seen.finalTrans);
     const e2eOk = (d.e2e_latency_ms || 0) > 0;
     const e2eLabel = e2eOk ? `E2E ${d.e2e_latency_ms}ms` : "E2E Latency";
     setDemoItem("demo-e2e", e2eOk, e2eLabel);
