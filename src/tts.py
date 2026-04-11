@@ -1,110 +1,120 @@
+import re
 import queue
 import threading
 import time
-import os
-import torch
-import soundfile as sf
 
-from config import OFFLINE_MODE, HF_HOME, TTS_MODEL_ID
+import numpy as np
+import sounddevice as sd
+import torch
 from transformers import VitsModel, AutoTokenizer
+
+from config import TTS_MODEL_ID, OFFLINE_MODE, HF_HOME
 from translation import tts_text_queue
 from state import state
 
-_tts_model = None
+_tts_model     = None
 _tts_tokenizer = None
 
 def _load_tts():
     global _tts_model, _tts_tokenizer
     try:
-        print("Loading Telugu TTS Model (MMS)...")
-        model_id = TTS_MODEL_ID
+        print(f"⏳ Loading TTS model ({TTS_MODEL_ID})...")
         _tts_tokenizer = AutoTokenizer.from_pretrained(
-            model_id,
-            cache_dir=HF_HOME,
-            local_files_only=OFFLINE_MODE,
-        )
-        # Force model strictly to CPU to prevent memory allocator crashes
+            TTS_MODEL_ID, cache_dir=HF_HOME, local_files_only=OFFLINE_MODE)
+        # VITS MPS allocator is unstable on Mac ARM — keep on CPU
         _tts_model = VitsModel.from_pretrained(
-            model_id,
-            cache_dir=HF_HOME,
-            local_files_only=OFFLINE_MODE,
-        ).to("cpu")
-        state["tts_status"] = "ready (MMS-TTS)"
+            TTS_MODEL_ID, cache_dir=HF_HOME, local_files_only=OFFLINE_MODE).to("cpu")
+        _tts_model.eval()    # lock BatchNorm / Dropout to eval mode permanently
+        state["tts_status"]  = "idle"
+        state["tts_backend"] = "MMS-TTS-Telugu"
+        print("  ✅ TTS loaded")
+        # Pre-warm: first inference is always slow (JIT compilation + memory alloc).
+        # Run a silent dummy pass so the first real utterance is not penalised.
+        _prewarm_tts()
     except Exception as e:
         state["tts_status"] = "unavailable"
-        print(f"⚠️ TTS failed to load: {e}")
-        if OFFLINE_MODE:
-            raise RuntimeError(
-                "Offline mode enabled but TTS model is missing from local cache. "
-                "Download the model to the HF cache path first."
-            ) from e
-def _synthesize_and_play(text: str) -> int:
-    t0 = time.time()
-    
-    # --- CRASH PREVENTION 1: Clean the text of AI garbage ---
-    text = text.replace("<unk>", "").strip()
-    
-    # If the text is empty after cleaning, abort safely
-    if not text:
-        return 0
+        print(f"⚠️  TTS failed to load: {e}")
 
-    print(f"\n🔊 SYNTHESIZING TELUGU AUDIO: {text}\n")
-    
+def _prewarm_tts():
+    """Synthesise a short Telugu word at startup so the first real call is fast."""
+    try:
+        dummy = "నమస్కారం"   # "Namaskaram" — short, ensures all codepaths execute
+        inp = _tts_tokenizer(dummy, return_tensors="pt")
+        with torch.inference_mode():
+            _ = _tts_model(**inp).waveform
+        print("  ✅ TTS pre-warmed")
+    except Exception:
+        pass   # non-fatal
+
+def _clean(text: str) -> str:
+    text = text.replace("<unk>", "")
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+def _synthesize_and_play(text: str) -> tuple[int, int]:
+    """Returns (synthesis_ms, playback_ms) separately so we can report them."""
+    text = _clean(text)
+    if not text:
+        return 0, 0
+
     try:
         inputs = _tts_tokenizer(text, return_tensors="pt")
-        
-        # --- CRASH PREVENTION 2: Check for valid tokens ---
-        # If the tokenizer couldn't find any valid Telugu letters, abort
-        if inputs["input_ids"].shape[1] <= 2: 
-            print("⚠️ Skipping audio: No valid Telugu characters found.")
-            return 0
+        if inputs["input_ids"].shape[1] <= 2:
+            return 0, 0
 
-        with torch.no_grad():
-            output = _tts_model(**inputs).waveform
-            
-        sample_rate = _tts_model.config.sampling_rate
-        audio_data = output.squeeze().cpu().numpy()
-        
-        temp_file = "temp_output.wav"
-        import soundfile as sf
-        sf.write(temp_file, audio_data, sample_rate)
-        
-        import os
-        if os.uname().sysname == 'Darwin':
-            os.system(f"afplay {temp_file}")
-        else:
-            os.system(f"aplay {temp_file}")
-            
+        # ── Synthesis ────────────────────────────────────────────────────────
+        t_synth = time.time()
+        with torch.inference_mode():   # faster than no_grad — skips autograd machinery
+            waveform = _tts_model(**inputs).waveform
+        synth_ms = int((time.time() - t_synth) * 1000)
+
+        # ── Playback ─────────────────────────────────────────────────────────
+        audio = waveform.squeeze().cpu().numpy().astype(np.float32)
+        sr    = _tts_model.config.sampling_rate
+        t_play = time.time()
+        sd.play(audio, samplerate=sr)
+        sd.wait()
+        play_ms = int((time.time() - t_play) * 1000)
+
+        return synth_ms, play_ms
+
     except Exception as e:
-        print(f"Audio playback error: {e}")
-        
-    latency = int((time.time() - t0) * 1000)
-    return latency
+        print(f"⚠️  TTS playback error: {e}")
+        return 0, 0
+
+_MAX_ONSET_AGE_S = 15.0   # discard e2e measurement if utterance queued > 15 s ago
 
 def run_tts():
-    # Model is already loaded by main.py, so we just loop
     while True:
         try:
-            item = tts_text_queue.get(timeout=1.0)
-        except queue.Empty:
+            text, onset_time = tts_text_queue.get(timeout=1.0)
+        except (queue.Empty, ValueError):
             continue
 
-        if isinstance(item, tuple) and len(item) == 2:
-            text, onset_time = item
-        else:
-            text, onset_time = item, None
+        if not text or state["tts_status"] == "unavailable":
+            continue
 
-        if not text:
+        # Drop stale items — if an utterance has waited more than 15 s in the
+        # queue the E2E number would be meaningless and speaker already missed it.
+        if onset_time and (time.time() - onset_time) > _MAX_ONSET_AGE_S:
             continue
 
         state["tts_status"] = "speaking"
-        latency = _synthesize_and_play(text)
-        state["tts_latency_ms"] = latency
-        if onset_time is not None:
+        synth_ms, play_ms = _synthesize_and_play(text)
+
+        # Report synthesis-only latency (excludes audio playback duration which
+        # is fixed by the length of the translated sentence — not a system cost).
+        state["tts_latency_ms"] = synth_ms
+        state["tts_play_ms"]    = play_ms
+
+        # E2E = speech onset → end of speaker output (mic-to-ear, per guideline).
+        # Only record if onset is recent enough to be meaningful.
+        if onset_time and (time.time() - onset_time) < _MAX_ONSET_AGE_S:
             state["e2e_latency_ms"] = int((time.time() - onset_time) * 1000)
+
         state["tts_status"] = "idle"
 
 def start_tts():
-    t = threading.Thread(target=run_tts, daemon=True)
+    t = threading.Thread(target=run_tts, daemon=True, name="tts")
     t.start()
     return t
