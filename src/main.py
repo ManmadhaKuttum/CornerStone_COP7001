@@ -3,52 +3,42 @@ import json
 import os
 import time
 from contextlib import asynccontextmanager
+
 import uvicorn
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-from config import WS_HZ, OFFLINE_MODE, HF_HOME
-
-if OFFLINE_MODE:
-    os.environ.setdefault("HF_HUB_OFFLINE", "1")
-    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-    os.environ.setdefault("HF_HOME", HF_HOME)
-
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.staticfiles import StaticFiles
-
+from config import WS_HZ, OFFLINE_MODE, HF_HOME, PROJECT_ROOT
 from state import state
 from audio import start_mic
-# Import the load functions directly!
 from segmenter import start_segmenter, _load_vad
 from asr import start_asr, _load_asr
 from translation import start_translation, _load_translation
 from tts import start_tts, _load_tts
 
-DASHBOARD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dashboard")
+if OFFLINE_MODE:
+    os.environ.setdefault("HF_HUB_OFFLINE",      "1")
+    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+    os.environ.setdefault("HF_HOME", HF_HOME)
+
+DASHBOARD_DIR = os.path.join(PROJECT_ROOT, "dashboard")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("\n🚀 [SYSTEMS BOOT] Loading models securely on MAIN THREAD...")
+    print("\n🚀 [BOOT] Loading all ML models on main thread...")
     state["offline_mode"] = OFFLINE_MODE
 
-    # 1. Load all ML models sequentially on the main OS thread (Linux/Mac safe)
-    print("⏳ Loading VAD...")
+    # All models loaded sequentially on the main thread before any worker
+    # thread starts — prevents PyTorch multi-threaded init crashes on Mac ARM.
     _load_vad()
-    
-    print("⏳ Loading ASR (Whisper)...")
     _load_asr()
-    
-    print("⏳ Loading Translation...")
     _load_translation()
-    
-    print("⏳ Loading TTS...")
     _load_tts()
-    
-    print("\n✅ All models loaded into memory safely.")
-    print("🚀 Igniting concurrent worker threads...")
 
-    # 2. Now it is 100% safe to start the background threads
+    print("🚀 [BOOT] Starting pipeline threads...")
     start_mic()
     start_segmenter()
     start_asr()
@@ -56,7 +46,7 @@ async def lifespan(app: FastAPI):
     start_tts()
 
     asyncio.create_task(broadcast_state())
-    print("🎙️ Pipeline fully operational! You can now speak.\n")
+    print("🎙️  Pipeline live — start speaking!\n")
     yield
 
 app = FastAPI(lifespan=lifespan)
@@ -66,11 +56,10 @@ _clients: list[WebSocket] = []
 
 @app.get("/")
 async def index():
-    from fastapi.responses import FileResponse
     return FileResponse(os.path.join(DASHBOARD_DIR, "index.html"))
 
 @app.websocket("/ws")
-async def websocket_endpoint(ws: WebSocket):
+async def ws_endpoint(ws: WebSocket):
     await ws.accept()
     _clients.append(ws)
     try:
@@ -86,12 +75,12 @@ async def broadcast_state():
         await asyncio.sleep(interval)
         payload = {
             **state,
-            "runtime": int(time.time() - state["start_time"]),
+            "runtime":           int(time.time() - state["start_time"]),
             "speech_onset_time": None,
         }
-        msg = json.dumps(payload)
+        msg  = json.dumps(payload)
         dead = []
-        for ws in _clients:
+        for ws in list(_clients):
             try:
                 await ws.send_text(msg)
             except Exception:
