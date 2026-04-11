@@ -1,6 +1,7 @@
 import queue
 import numpy as np
 import sounddevice as sd
+
 from config import SAMPLE_RATE, FRAME_SAMPLES, CHANNELS, AUDIO_QUEUE_SIZE
 
 audio_queue = queue.Queue(maxsize=AUDIO_QUEUE_SIZE)
@@ -19,6 +20,7 @@ def start_mic():
         blocksize=FRAME_SAMPLES,
         dtype="float32",
         callback=audio_callback,
+        device=2,
     )
     stream.start()
     return stream
