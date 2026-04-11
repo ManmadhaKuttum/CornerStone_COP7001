@@ -1,126 +1,110 @@
 import queue
 import threading
 import time
-import os
 
 from faster_whisper import WhisperModel
 
 from config import (
     ASR_MODEL, DEVICE, COMPUTE_TYPE, ASR_LANGUAGE,
-    BEAM_SIZE, NO_SPEECH_THRESHOLD,
-    COMPRESSION_RATIO_THRESHOLD, LOG_PROB_THRESHOLD,
+    BEAM_SIZE, PARTIAL_BEAM_SIZE,
+    NO_SPEECH_THRESHOLD, COMPRESSION_RATIO_THRESHOLD, LOG_PROB_THRESHOLD,
     OFFLINE_MODE,
 )
-from segmenter import asr_to_trans_queue
+from segmenter import asr_queue
 from state import state
 
-# Queue carries tuples: ("partial"|"final", text)
+# Output queue to translation thread.
+# Protocol: ("partial", text, onset_time) | ("final", text, onset_time)
 trans_text_queue = queue.Queue(maxsize=20)
 
 _model = None
 
+# Forces Devanagari script output — prevents Whisper romanizing Hindi words.
+_HINDI_PROMPT = "नमस्ते, यह हिंदी में बातचीत है।"
+
 def _load_asr():
     global _model
-    if OFFLINE_MODE:
-        if not (os.path.isdir(ASR_MODEL) or os.path.isfile(ASR_MODEL)):
-            raise RuntimeError(
-                "Offline mode enabled but ASR_MODEL is not a local path. "
-                "Set WHISPER_MODEL_PATH to a downloaded Faster-Whisper model directory."
-            )
-    _model = WhisperModel(
-        ASR_MODEL,
-        device=DEVICE,
-        compute_type=COMPUTE_TYPE,
-    )
+    _model = WhisperModel(ASR_MODEL, device=DEVICE, compute_type=COMPUTE_TYPE)
     state["asr_status"] = "ready"
-def _transcribe(audio, onset_time):
-    t0 = time.time()
-    segments, info = _model.transcribe(
+    print(f"  ✅ ASR loaded — model: {ASR_MODEL!r}, device: {DEVICE}, compute: {COMPUTE_TYPE}")
+
+def _run_whisper(audio, beam_size: int) -> str:
+    segments, _ = _model.transcribe(
         audio,
         language=ASR_LANGUAGE,
-        task="transcribe", # <--- FIX 1: Explicitly tell it NOT to translate to English
-        initial_prompt="नमस्ते, आप कैसे हैं? यह हिंदी है।", # <--- FIX 2: Force Devanagari script via prompt
-        beam_size=BEAM_SIZE,
+        task="transcribe",
+        initial_prompt=_HINDI_PROMPT,
+        beam_size=beam_size,
         no_speech_threshold=NO_SPEECH_THRESHOLD,
         compression_ratio_threshold=COMPRESSION_RATIO_THRESHOLD,
         log_prob_threshold=LOG_PROB_THRESHOLD,
         vad_filter=True,
     )
-    partial_chunks = []
-    last_partial = ""
-    last_emit = 0.0
-    min_emit_interval = 0.3  # seconds, avoid spamming dashboard/translation
-
-    for s in segments:
-        seg_text = (s.text or "").strip()
-        if not seg_text:
-            continue
-
-        partial_chunks.append(seg_text)
-        partial_text = " ".join(partial_chunks).strip()
-        if not partial_text or partial_text == last_partial:
-            continue
-
-        now = time.time()
-        if now - last_emit >= min_emit_interval:
-            state["partial_transcript"] = partial_text
-            try:
-                trans_text_queue.put_nowait(("partial", partial_text, onset_time))
-            except queue.Full:
-                pass
-            last_partial = partial_text
-            last_emit = now
-
-    text = " ".join(partial_chunks).strip()
-    latency = int((time.time() - t0) * 1000)
-    return text, latency
+    # Consume the generator fully — faster-whisper is lazy.
+    return " ".join(s.text for s in segments).strip()
 
 def run_asr():
-    
+    last_partial_enqueued = ""
+
     while True:
         try:
-            item = asr_to_trans_queue.get(timeout=1.0)
-        except queue.Empty:
+            tag, audio, onset_time = asr_queue.get(timeout=1.0)
+        except (queue.Empty, ValueError):
             continue
 
-        if isinstance(item, tuple) and len(item) == 3:
-            tag, audio, onset_time = item
-        elif isinstance(item, tuple) and len(item) == 2:
-            tag, audio = item
-            onset_time = None
-        else:
-            continue
+        if tag == "partial":
+            # ── Fast path: beam=1 ────────────────────────────────────────────
+            # Goal: show live Hindi text on dashboard while user is still talking.
+            # Accuracy is secondary. Sends best-effort partial updates to
+            # translation; translation will skip stale partials under load.
+            text = _run_whisper(audio, beam_size=PARTIAL_BEAM_SIZE)
+            if text:
+                state["partial_transcript"] = text
+                if text != last_partial_enqueued:
+                    try:
+                        trans_text_queue.put_nowait(("partial", text, onset_time))
+                        last_partial_enqueued = text
+                    except queue.Full:
+                        # Drop partial update if queue is saturated; final output
+                        # is always more important than partial display updates.
+                        pass
 
-        if tag != "asr":
-            continue
+        elif tag == "final":
+            # ── Accuracy-focused path: beam=4 ────────────────────────────────
+            # Full utterance after silence. This is the ONLY path that feeds
+            # translation and TTS. Never reduce beam_size here — wrong Hindi
+            # transcription corrupts the entire downstream pipeline.
+            t0   = time.time()
+            text = _run_whisper(audio, beam_size=BEAM_SIZE)
+            latency = int((time.time() - t0) * 1000)
 
-        # Reset partials at the start of a new utterance
-        state["partial_transcript"] = ""
-        state["partial_translation"] = ""
+            if not text:
+                state["partial_transcript"] = ""
+                continue
 
-        text, latency = _transcribe(audio, onset_time)
-        if not text:
-            continue
+            state["final_transcript"]   = (
+                state["final_transcript"] + " " + text
+                if state["final_transcript"] else text
+            )
+            state["partial_transcript"] = ""
+            last_partial_enqueued = ""
+            state["asr_latency_ms"]     = latency
+            state["total_words_asr"]   += len(text.split())
 
-        state["final_transcript"] = state["final_transcript"] + " " + text if state["final_transcript"] else text
-        state["asr_latency_ms"] = latency
-        state["total_words_asr"] += len(text.split())
-        state["partial_transcript"] = ""
-
-        try:
-            trans_text_queue.put_nowait(("final", text, onset_time))
-        except queue.Full:
-            # Make room for final output by dropping one queued item
-            try:
-                trans_text_queue.get_nowait()
-            except queue.Empty:
-                pass
             try:
                 trans_text_queue.put_nowait(("final", text, onset_time))
             except queue.Full:
-                pass
+                # Drop the oldest queued item to make room for the final result.
+                try:
+                    trans_text_queue.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    trans_text_queue.put_nowait(("final", text, onset_time))
+                except queue.Full:
+                    pass
 
 def start_asr():
-    t = threading.Thread(target=run_asr, daemon=True)
+    t = threading.Thread(target=run_asr, daemon=True, name="asr")
     t.start()
     return t
