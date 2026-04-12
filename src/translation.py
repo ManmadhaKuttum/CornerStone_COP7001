@@ -4,7 +4,8 @@ import queue
 import threading
 import time
 import ctranslate2
-from transformers import AutoTokenizer
+import torch
+from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
 from config import (
     SRC_LANG, TGT_LANG, MAX_LENGTH,
@@ -21,27 +22,47 @@ from state import state
 tts_text_queue = queue.Queue(maxsize=3)
 
 _translator = None
+_hf_model   = None
 _tok        = None
 _translator_device = "cpu"
+_backend    = None
+
+def _cached_hf_snapshot(model_id: str) -> str | None:
+    repo_dir = os.path.join(HF_HOME, f"models--{model_id.replace('/', '--')}")
+    ref_path = os.path.join(repo_dir, "refs", "main")
+    try:
+        with open(ref_path, "r", encoding="utf-8") as fh:
+            revision = fh.read().strip()
+        snapshot_dir = os.path.join(repo_dir, "snapshots", revision)
+        if os.path.isdir(snapshot_dir):
+            return snapshot_dir
+    except OSError:
+        pass
+    return None
 
 def _load_translation():
-    global _translator, _tok, _translator_device
+    global _translator, _hf_model, _tok, _translator_device, _backend
     print("⏳ Loading CTranslate2 NLLB engine...")
-
+    tokenizer_src = _cached_hf_snapshot(TRANSLATION_TOKENIZER_ID) or TRANSLATION_TOKENIZER_ID
     _tok = AutoTokenizer.from_pretrained(
-        TRANSLATION_TOKENIZER_ID,
+        tokenizer_src,
         cache_dir=HF_HOME,
-        local_files_only=OFFLINE_MODE,
+        local_files_only=OFFLINE_MODE or os.path.isdir(tokenizer_src),
     )
 
     ct2_path = os.path.join(PROJECT_ROOT, "pretrained", "nllb-200-distilled-600M-int8")
-    if not os.path.isdir(ct2_path):
-        raise RuntimeError(
-            f"CTranslate2 NLLB model not found at {ct2_path}.\n"
-            "Run once:\n"
-            "  ct2-transformers-converter --model facebook/nllb-200-distilled-600M "
-            "--output_dir pretrained/nllb-200-distilled-600M-int8 --quantization int8"
+    if os.path.isdir(ct2_path):
+        _translator = ctranslate2.Translator(
+            ct2_path, device="cpu", compute_type="int8",
+            intra_threads=CT2_INTRA_THREADS,
+            inter_threads=CT2_INTER_THREADS,
         )
+        _hf_model = None
+        _backend = "ct2"
+        state["trans_backend"] = "CTranslate2-NLLB-600M"
+        state["trans_status"] = "ready"
+        print("  ✅ Translation loaded (CTranslate2)")
+        return
 
     translator_kwargs = {
         "device": TRANSLATION_DEVICE,
@@ -74,6 +95,19 @@ def _load_translation():
     state["trans_status"]  = "ready"
     state["trans_backend"] = f"CTranslate2-NLLB-600M ({_translator_device})"
     print("  ✅ Translation loaded")
+    print("  ⚠️  CTranslate2 export missing, using cached Transformers NLLB model")
+    _translator = None
+    _hf_model = AutoModelForSeq2SeqLM.from_pretrained(
+        tokenizer_src,
+        cache_dir=HF_HOME,
+        local_files_only=OFFLINE_MODE or os.path.isdir(tokenizer_src),
+        low_cpu_mem_usage=True,
+    ).to("cpu")
+    _hf_model.eval()
+    _backend = "hf"
+    state["trans_status"] = "ready"
+    state["trans_backend"] = "Transformers-NLLB-600M"
+    print("  ✅ Translation loaded (Transformers)")
 
 def _clean(text: str) -> str:
     """Remove <unk> tokens and collapse extra whitespace."""
@@ -81,19 +115,38 @@ def _clean(text: str) -> str:
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-def _translate(text: str) -> tuple[str, int]:
+def _translate(text: str, tag: str) -> tuple[str, int]:
     t0 = time.time()
     _tok.src_lang = SRC_LANG
-    source  = _tok.convert_ids_to_tokens(_tok.encode(text))
-    results = _translator.translate_batch(
-        [source],
-        target_prefix=[[TGT_LANG]],
-        max_decoding_length=MAX_LENGTH,
-        beam_size=TRANS_BEAMS,
-        no_repeat_ngram_size=3,
-    )
-    target  = results[0].hypotheses[0][1:]
-    result  = _clean(_tok.decode(_tok.convert_tokens_to_ids(target)))
+    if _backend == "ct2":
+        source  = _tok.convert_ids_to_tokens(_tok.encode(text))
+        results = _translator.translate_batch(
+            [source],
+            target_prefix=[[TGT_LANG]],
+            max_decoding_length=MAX_LENGTH,
+            beam_size=TRANS_BEAMS,
+            no_repeat_ngram_size=3,
+        )
+        target  = results[0].hypotheses[0][1:]
+        result  = _clean(_tok.decode(_tok.convert_tokens_to_ids(target)))
+    else:
+        inputs = _tok(text, return_tensors="pt")
+        forced_bos_token_id = _tok.convert_tokens_to_ids(TGT_LANG)
+        max_new_tokens = min(MAX_LENGTH, max(24, int(inputs["input_ids"].shape[1]) + 12))
+        if tag == "partial":
+            max_new_tokens = min(max_new_tokens, 48)
+        with torch.inference_mode():
+            generated = _hf_model.generate(
+                **inputs,
+                forced_bos_token_id=forced_bos_token_id,
+                max_new_tokens=max_new_tokens,
+                num_beams=TRANS_BEAMS,
+                do_sample=False,
+                use_cache=True,
+                early_stopping=True,
+                no_repeat_ngram_size=3,
+            )
+        result = _clean(_tok.batch_decode(generated, skip_special_tokens=True)[0])
     latency = int((time.time() - t0) * 1000)
     return result, latency
 
@@ -109,6 +162,12 @@ def run_translation():
 
         if not text:
             continue
+        if state["trans_status"] == "unavailable" or _tok is None:
+            continue
+        if _backend == "ct2" and _translator is None:
+            continue
+        if _backend == "hf" and _hf_model is None:
+            continue
 
         # If queue already has pending items, skip stale partial work and keep
         # CPU available for final results.
@@ -120,7 +179,7 @@ def run_translation():
                 state["partial_translation"] = last_partial_tgt
             continue
 
-        translated, latency = _translate(text)
+        translated, latency = _translate(text, tag)
         if not translated:
             continue
 

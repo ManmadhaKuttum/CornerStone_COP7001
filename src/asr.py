@@ -90,6 +90,9 @@ def run_asr():
         except (queue.Empty, ValueError):
             continue
 
+        if _model is None or state["asr_status"] == "unavailable":
+            continue
+
         if tag == "partial":
             # ── Fast path: beam=1 ────────────────────────────────────────────
             # Goal: show live Hindi text on dashboard while user is still talking.

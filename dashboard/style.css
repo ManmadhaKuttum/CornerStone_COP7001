@@ -138,6 +138,7 @@ body {
 .dot { width: 8px; height: 8px; border-radius: 50%; background: #333; flex-shrink: 0; }
 .dot.active     { background: var(--accent-green); box-shadow: 0 0 6px var(--accent-green); }
 .dot.processing { background: var(--accent-warning); box-shadow: 0 0 6px var(--accent-warning); }
+.dot.bad        { background: #ef4444; box-shadow: 0 0 6px #ef4444; }
 
 .speaking-indicator {
     padding: 6px;

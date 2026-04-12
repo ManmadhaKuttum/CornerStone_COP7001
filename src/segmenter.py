@@ -20,26 +20,51 @@ from state import state
 asr_queue = queue.Queue(maxsize=TRANS_QUEUE_SIZE)
 
 _vad_model = None
+_vad_mode = "silero"
 
 def _load_vad():
-    global _vad_model
-    if OFFLINE_MODE:
-        # Try explicit path first, then scan Torch Hub cache
-        path = SILERO_VAD_PATH if (
-            SILERO_VAD_PATH and
-            os.path.isfile(os.path.join(SILERO_VAD_PATH, "hubconf.py"))
-        ) else _find_silero_in_hub_cache()
-        if not path:
-            raise RuntimeError(
-                "Offline mode: Silero VAD not found. "
-                "Set SILERO_VAD_PATH or ensure the Torch Hub cache contains silero-vad."
+    global _vad_model, _vad_mode
+    path = SILERO_VAD_PATH if (
+        SILERO_VAD_PATH and
+        os.path.isfile(os.path.join(SILERO_VAD_PATH, "hubconf.py"))
+    ) else _find_silero_in_hub_cache()
+
+    if path:
+        model, _ = torch.hub.load(
+            repo_or_dir=path,
+            model="silero_vad",
+            source="local",
+            force_reload=False,
+            onnx=False,
+            verbose=False,
+        )
+        _vad_model = model
+        _vad_mode = "silero"
+        state["vad_backend"] = "silero-vad"
+        print("  ✅ VAD loaded (Silero)")
+        return
+
+    if not OFFLINE_MODE:
+        try:
+            model, _ = torch.hub.load(
+                repo_or_dir="snakers4/silero-vad",
+                model="silero_vad",
+                force_reload=False,
+                onnx=False,
+                verbose=False,
             )
-        model, _ = torch.hub.load(repo_or_dir=path, model="silero_vad",
-                                  source="local", force_reload=False, onnx=False)
-    else:
-        model, _ = torch.hub.load(repo_or_dir="snakers4/silero-vad",
-                                  model="silero_vad", force_reload=False, onnx=False)
-    _vad_model = model
+            _vad_model = model
+            _vad_mode = "silero"
+            state["vad_backend"] = "silero-vad"
+            print("  ✅ VAD loaded (Silero)")
+            return
+        except Exception as exc:
+            print(f"⚠️  Silero VAD unavailable, falling back to energy VAD: {exc}")
+
+    _vad_model = None
+    _vad_mode = "energy"
+    state["vad_backend"] = "energy"
+    print("  ⚠️  Using simple energy-based VAD fallback")
 
 def _find_silero_in_hub_cache():
     try:
@@ -54,6 +79,10 @@ def _find_silero_in_hub_cache():
     return None
 
 def _vad_conf(frame: np.ndarray) -> float:
+    if _vad_mode == "energy":
+        # Normalize RMS into a rough 0..1 confidence-like range for fallback VAD.
+        rms = float(np.sqrt(np.mean(frame ** 2)))
+        return min(1.0, rms * 40.0)
     with torch.no_grad():
         return _vad_model(torch.from_numpy(frame).unsqueeze(0), SAMPLE_RATE).item()
 

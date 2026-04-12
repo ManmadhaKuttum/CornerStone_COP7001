@@ -8,6 +8,7 @@ state = {
     "start_time":          time.time(),
     "speech_onset_time":   None,
     "last_audio_duration": 0.0,
+    "mic_status":          "loading",
 
     # ── Pipeline liveness ─────────────────────────────────────────────────
     "asr_status":   "loading",
@@ -36,6 +37,7 @@ state = {
     "total_words_trans": 0,
 
     # ── Backend labels ────────────────────────────────────────────────────
+    "vad_backend":   "silero-vad",
     "trans_backend": "CTranslate2-NLLB-600M",
     "tts_backend":   "MMS-TTS-Telugu",
 }

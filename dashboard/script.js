@@ -42,6 +42,8 @@ function setDot(id, status) {
         dot.classList.add("active");
     } else if (status === "loading" || status === "speaking") {
         dot.classList.add("processing");
+    } else if (status === "unavailable" || status === "error") {
+        dot.classList.add("bad");
     }
 }
 
@@ -73,7 +75,7 @@ function update(d) {
     document.getElementById("runtime-val").textContent = d.runtime + "s";
 
     // Liveness
-    setDot("badge-mic", d.frames > 0 ? "ready" : "loading");
+    setDot("badge-mic", d.mic_status || (d.frames > 0 ? "ready" : "loading"));
     setDot("badge-asr", d.asr_status);
     setDot("badge-trans", d.trans_status);
     setDot("badge-tts", d.tts_status === "speaking" ? "speaking" : d.tts_status.includes("ready") ? "ready" : "loading");

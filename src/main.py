@@ -8,12 +8,16 @@ import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from transformers.utils import logging as hf_logging
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+hf_logging.set_verbosity_error()
+hf_logging.disable_progress_bar()
 
 from config import WS_HZ, OFFLINE_MODE, HF_HOME, PROJECT_ROOT
 from state import state
-from audio import start_mic
+from audio import start_mic_background
 from segmenter import start_segmenter, _load_vad
 from asr import start_asr, _load_asr
 from translation import start_translation, _load_translation
@@ -33,15 +37,27 @@ async def lifespan(app: FastAPI):
     # All models loaded sequentially on the main thread before any worker
     # thread starts — prevents PyTorch multi-threaded init crashes on Mac ARM.
     _load_vad()
-    _load_asr()
-    _load_translation()
-    _load_tts()
+    try:
+        _load_asr()
+    except Exception as exc:
+        state["asr_status"] = "unavailable"
+        print(f"⚠️  ASR failed to load: {exc}")
+    try:
+        _load_translation()
+    except Exception as exc:
+        state["trans_status"] = "unavailable"
+        print(f"⚠️  Translation failed to load: {exc}")
+    try:
+        _load_tts()
+    except Exception as exc:
+        state["tts_status"] = "unavailable"
+        print(f"⚠️  TTS failed to load: {exc}")
 
     # All models loaded from local cache — system is now fully offline-capable.
     state["offline_mode"] = True
 
     print("🚀 [BOOT] Starting pipeline threads...")
-    start_mic()
+    start_mic_background()
     start_segmenter()
     start_asr()
     start_translation()

@@ -54,6 +54,14 @@ SAMPLE_RATE    = 16000
 FRAME_DURATION = 0.032          # 32 ms = 512 samples (Silero minimum)
 FRAME_SAMPLES  = int(SAMPLE_RATE * FRAME_DURATION)
 CHANNELS       = 1
+_mic_device_env = os.getenv("MIC_DEVICE")
+if _mic_device_env is None or _mic_device_env == "":
+    MIC_DEVICE = None
+else:
+    try:
+        MIC_DEVICE = int(_mic_device_env)
+    except ValueError:
+        MIC_DEVICE = _mic_device_env
 
 # ── VAD / segmenter ───────────────────────────────────────────────────────────
 VAD_THRESHOLD     = 0.55        # keep sensitivity for soft Hindi consonants
