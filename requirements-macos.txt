@@ -1,0 +1,5 @@
+-r requirements.txt
+
+# PyTorch for macOS (CPU/MPS path as available)
+torch>=2.1.0
+torchaudio>=2.1.0

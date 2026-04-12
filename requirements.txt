@@ -1,8 +1,14 @@
 # ─── Real-Time Speech Translation System ────────────────────────────────────
 # COP7001 CornerStone Project | Hindi → Telugu | Fully Offline
 #
-# Install:
+# Install (shared/base dependencies):
 #   pip install -r requirements.txt
+#
+# Then install platform torch wheels:
+#   macOS (Apple Silicon / Intel):
+#       pip install -r requirements-macos.txt
+#   Linux with NVIDIA CUDA:
+#       pip install -r requirements-linux-cuda.txt
 #
 # One-time CTranslate2 model conversion (run once after install):
 #   ct2-transformers-converter --model facebook/nllb-200-distilled-600M \
@@ -26,9 +32,8 @@ sounddevice>=0.4.6
 soundfile>=0.12.1
 numpy>=1.24.0
 
-# ── PyTorch (VAD + TTS run on CPU; MPS on Apple Silicon) ─────────────────────
-torch>=2.1.0
-torchaudio>=2.1.0
+# ── NOTE: PyTorch is installed via platform-specific requirements files ───────
+# requirements-macos.txt / requirements-linux-cuda.txt
 
 # ── ASR — faster-whisper (CTranslate2 backend) ───────────────────────────────
 faster-whisper>=1.0.0

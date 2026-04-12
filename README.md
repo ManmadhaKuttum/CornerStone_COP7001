@@ -49,6 +49,24 @@ This forms the core pipeline required for real-time speech processing.
 
 ## Running the System
 
+Install dependencies first:
+
+macOS:
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements-macos.txt
+```
+
+Linux with NVIDIA CUDA:
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements-linux-cuda.txt
+```
+
+Then run:
+
 ```bash
 python src/main.py
 ```
@@ -63,7 +81,10 @@ http://localhost:8000
 
 ## Offline-Ready Setup (No Runtime Downloads)
 
-This project now defaults to offline mode. It will not download models at runtime.
+By default this project starts in warm-cache mode (`OFFLINE_MODE = False`) so first run
+can download missing models. After models are cached locally, you can switch
+`OFFLINE_MODE = True` in `src/config.py` for strict offline demo mode.
+
 Make sure the following assets are present locally before demo day.
 
 1. Silero VAD repo (local path used by `SILERO_VAD_PATH`)
