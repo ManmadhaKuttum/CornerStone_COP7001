@@ -86,11 +86,13 @@ def run_asr():
 
     while True:
         try:
-            tag, audio, onset_time = asr_queue.get(timeout=1.0)
+            session_id, tag, audio, onset_time = asr_queue.get(timeout=1.0)
         except (queue.Empty, ValueError):
             continue
 
         if _model is None or state["asr_status"] == "unavailable":
+            continue
+        if session_id != state["session_id"]:
             continue
 
         if tag == "partial":
@@ -103,7 +105,7 @@ def run_asr():
                 state["partial_transcript"] = text
                 if text != last_partial_enqueued:
                     try:
-                        trans_text_queue.put_nowait(("partial", text, onset_time))
+                        trans_text_queue.put_nowait((session_id, "partial", text, onset_time))
                         last_partial_enqueued = text
                     except queue.Full:
                         # Drop partial update if queue is saturated; final output
@@ -133,26 +135,26 @@ def run_asr():
             state["total_words_asr"]   += len(text.split())
 
             try:
-                trans_text_queue.put_nowait(("final", text, onset_time))
+                trans_text_queue.put_nowait((session_id, "final", text, onset_time))
             except queue.Full:
                 # Queue is full of stale partials. Drain partials-only to make
                 # room. Finals already in the queue are kept — never dropped.
                 for _ in range(trans_text_queue.maxsize):
                     try:
                         head = trans_text_queue.get_nowait()
-                        if head[0] == "final":
+                        if head[1] == "final":
                             trans_text_queue.put_nowait(head)  # put back
                             break
                     except queue.Empty:
                         break
                 # Block up to 2 s — finals must reach the translation thread.
                 try:
-                    trans_text_queue.put(("final", text, onset_time), timeout=2.0)
+                    trans_text_queue.put((session_id, "final", text, onset_time), timeout=2.0)
                 except queue.Full:
                     # Last-resort path: block until queue drains. This prevents
                     # silent loss of finalized utterances.
                     print("⚠️  Translation queue saturated, blocking to preserve final ASR output...")
-                    trans_text_queue.put(("final", text, onset_time))
+                    trans_text_queue.put((session_id, "final", text, onset_time))
 
 def start_asr():
     t = threading.Thread(target=run_asr, daemon=True, name="asr")

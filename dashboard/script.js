@@ -7,6 +7,57 @@ const seen = {
     finalTrans: false,
 };
 
+function resetSeenFlags() {
+    seen.partialAsr = false;
+    seen.finalAsr = false;
+    seen.partialTrans = false;
+    seen.finalTrans = false;
+}
+
+async function restartSpeech() {
+    const btn = document.getElementById("reset-btn");
+    if (!btn) return;
+    btn.disabled = true;
+    btn.textContent = "Resetting...";
+    try {
+        const res = await fetch("/api/reset-session", { method: "POST" });
+        if (!res.ok) throw new Error("reset failed");
+        resetSeenFlags();
+        document.getElementById("runtime-val").textContent = "0s";
+        document.getElementById("partial-asr").textContent = "Waiting for speech...";
+        document.getElementById("final-asr").textContent = "";
+        document.getElementById("partial-trans").textContent = "Waiting for ASR output...";
+        document.getElementById("final-trans").textContent = "";
+        document.getElementById("energyFill").style.width = "0%";
+        document.getElementById("energy-val").textContent = "0.00000";
+        document.getElementById("frames-val").textContent = "0";
+        document.getElementById("words-asr").textContent = "0";
+        document.getElementById("words-trans").textContent = "0";
+        document.getElementById("lat-asr").textContent = "—";
+        document.getElementById("lat-asr").className = "lat-value";
+        document.getElementById("lat-trans").textContent = "—";
+        document.getElementById("lat-trans").className = "lat-value";
+        document.getElementById("lat-tts").textContent = "—";
+        document.getElementById("lat-tts").className = "lat-value";
+        document.getElementById("lat-e2e").textContent = "—";
+        document.getElementById("lat-e2e").className = "lat-value";
+        document.getElementById("speaking-indicator").textContent = "🔇 Silence";
+        document.getElementById("speaking-indicator").className = "speaking-indicator";
+        document.getElementById("playback-status").textContent = "Playback: idle";
+        document.getElementById("playback-status").className = "playback-status";
+        setDemoItem("demo-partial-asr", false);
+        setDemoItem("demo-final-asr", false);
+        setDemoItem("demo-partial-trans", false);
+        setDemoItem("demo-final-trans", false);
+        setDemoItem("demo-e2e", false, "E2E Latency");
+    } catch (err) {
+        console.error(err);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Reset Session";
+    }
+}
+
 function connect() {
     ws = new WebSocket(`ws://${location.host}/ws`);
 
@@ -177,3 +228,8 @@ function update(d) {
 }
 
 connect();
+
+const resetBtn = document.getElementById("reset-btn");
+if (resetBtn) {
+    resetBtn.addEventListener("click", restartSpeech);
+}

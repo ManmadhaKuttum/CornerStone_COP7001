@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from transformers.utils import logging as hf_logging
 
@@ -16,12 +16,13 @@ hf_logging.set_verbosity_error()
 hf_logging.disable_progress_bar()
 
 from config import WS_HZ, OFFLINE_MODE, HF_HOME, PROJECT_ROOT
-from state import state
+from state import state, reset_session_state
 from audio import start_mic_background
-from segmenter import start_segmenter, _load_vad
-from asr import start_asr, _load_asr
-from translation import start_translation, _load_translation
-from tts import start_tts, _load_tts
+from audio import audio_queue
+from segmenter import start_segmenter, _load_vad, asr_queue
+from asr import start_asr, _load_asr, trans_text_queue
+from translation import start_translation, _load_translation, tts_text_queue
+from tts import start_tts, _load_tts, stop_playback
 
 if OFFLINE_MODE:
     os.environ.setdefault("HF_HUB_OFFLINE",      "1")
@@ -72,9 +73,26 @@ app.mount("/static", StaticFiles(directory=DASHBOARD_DIR), name="static")
 
 _clients: list[WebSocket] = []
 
+def _drain_queue(q):
+    while True:
+        try:
+            q.get_nowait()
+        except Exception:
+            break
+
 @app.get("/")
 async def index():
     return FileResponse(os.path.join(DASHBOARD_DIR, "index.html"))
+
+@app.post("/api/reset-session")
+async def reset_session():
+    stop_playback()
+    reset_session_state()
+    _drain_queue(audio_queue)
+    _drain_queue(asr_queue)
+    _drain_queue(trans_text_queue)
+    _drain_queue(tts_text_queue)
+    return JSONResponse({"ok": True, "session_id": state["session_id"]})
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):

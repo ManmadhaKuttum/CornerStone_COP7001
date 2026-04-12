@@ -35,6 +35,35 @@ body {
 .header h1 { margin: 0; color: var(--accent-blue); font-size: 20px; }
 .header p  { margin: 3px 0 0 0; color: var(--text-muted); font-size: 12px; }
 
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.restart-btn {
+    border: 1px solid rgba(59,130,246,0.5);
+    background: linear-gradient(135deg, rgba(59,130,246,0.22), rgba(16,185,129,0.18));
+    color: var(--text-main);
+    border-radius: 999px;
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.restart-btn:hover {
+    transform: translateY(-1px);
+    border-color: var(--accent-blue);
+}
+
+.restart-btn:disabled {
+    opacity: 0.6;
+    cursor: progress;
+    transform: none;
+}
+
 .status-pill {
     padding: 5px 14px;
     border-radius: 20px;

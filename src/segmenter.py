@@ -92,7 +92,7 @@ def _enqueue(tag: str, buffer: list, onset_time: float):
     audio = np.concatenate(buffer)
     state["last_audio_duration"] = len(audio) / SAMPLE_RATE
     try:
-        asr_queue.put_nowait((tag, audio, onset_time))
+        asr_queue.put_nowait((state["session_id"], tag, audio, onset_time))
     except queue.Full:
         pass
 
@@ -102,8 +102,17 @@ def run_segmenter():
     in_speech     = False
     onset_time    = None
     last_partial  = 0.0
+    active_session = state["session_id"]
 
     while True:
+        if active_session != state["session_id"]:
+            buffer = []
+            silence_count = 0
+            in_speech = False
+            onset_time = None
+            last_partial = 0.0
+            active_session = state["session_id"]
+
         try:
             frame = audio_queue.get(timeout=0.5)
         except queue.Empty:

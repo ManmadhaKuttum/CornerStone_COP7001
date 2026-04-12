@@ -149,11 +149,13 @@ def run_translation():
 
     while True:
         try:
-            tag, text, onset_time = trans_text_queue.get(timeout=1.0)
+            session_id, tag, text, onset_time = trans_text_queue.get(timeout=1.0)
         except (queue.Empty, ValueError):
             continue
 
         if not text:
+            continue
+        if session_id != state["session_id"]:
             continue
         if state["trans_status"] == "unavailable" or _tok is None:
             continue
@@ -205,7 +207,7 @@ def run_translation():
         state["total_words_trans"]  += len(translated.split())
 
         try:
-            tts_text_queue.put_nowait((translated, onset_time))
+            tts_text_queue.put_nowait((session_id, translated, onset_time))
         except queue.Full:
             # Drop one oldest TTS item so speaker stays near real-time.
             try:
@@ -213,7 +215,7 @@ def run_translation():
             except queue.Empty:
                 pass
             try:
-                tts_text_queue.put_nowait((translated, onset_time))
+                tts_text_queue.put_nowait((session_id, translated, onset_time))
             except queue.Full:
                 pass
 

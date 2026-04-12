@@ -37,6 +37,14 @@ def _sounddevice():
         _sd = sd
     return _sd
 
+def stop_playback():
+    if _sd is None:
+        return
+    try:
+        _sd.stop()
+    except Exception:
+        pass
+
 def _load_tts():
     global _tts_model, _tts_tokenizer, _tts_device
     try:
@@ -127,10 +135,12 @@ _MAX_ONSET_AGE_S = 15.0   # discard e2e measurement if utterance queued > 15 s a
 def run_tts():
     while True:
         try:
-            text, onset_time = tts_text_queue.get(timeout=1.0)
+            session_id, text, onset_time = tts_text_queue.get(timeout=1.0)
         except (queue.Empty, ValueError):
             continue
 
+        if session_id != state["session_id"]:
+            continue
         if not text or state["tts_status"] == "unavailable":
             continue
 
