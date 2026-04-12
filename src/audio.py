@@ -20,7 +20,7 @@ def start_mic():
         blocksize=FRAME_SAMPLES,
         dtype="float32",
         callback=audio_callback,
-        device=2,
+        device=None,   # None = system default input device
     )
     stream.start()
     return stream

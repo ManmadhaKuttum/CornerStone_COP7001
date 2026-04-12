@@ -10,6 +10,7 @@ from config import (
     SRC_LANG, TGT_LANG, MAX_LENGTH,
     OFFLINE_MODE, HF_HOME, TRANSLATION_TOKENIZER_ID,
     PROJECT_ROOT, TRANS_BEAMS, CT2_INTRA_THREADS, CT2_INTER_THREADS,
+    TRANSLATION_DEVICE, TRANSLATION_COMPUTE_TYPE,
 )
 from asr import trans_text_queue
 from state import state
@@ -21,9 +22,10 @@ tts_text_queue = queue.Queue(maxsize=3)
 
 _translator = None
 _tok        = None
+_translator_device = "cpu"
 
 def _load_translation():
-    global _translator, _tok
+    global _translator, _tok, _translator_device
     print("⏳ Loading CTranslate2 NLLB engine...")
 
     _tok = AutoTokenizer.from_pretrained(
@@ -41,13 +43,36 @@ def _load_translation():
             "--output_dir pretrained/nllb-200-distilled-600M-int8 --quantization int8"
         )
 
-    _translator = ctranslate2.Translator(
-        ct2_path, device="cpu", compute_type="int8",
-        intra_threads=CT2_INTRA_THREADS,
-        inter_threads=CT2_INTER_THREADS,
-    )
+    translator_kwargs = {
+        "device": TRANSLATION_DEVICE,
+        "compute_type": TRANSLATION_COMPUTE_TYPE,
+    }
+    if TRANSLATION_DEVICE == "cpu":
+        translator_kwargs["intra_threads"] = CT2_INTRA_THREADS
+        translator_kwargs["inter_threads"] = CT2_INTER_THREADS
+
+    try:
+        _translator = ctranslate2.Translator(ct2_path, **translator_kwargs)
+        _translator_device = TRANSLATION_DEVICE
+    except Exception:
+        # Fallback for CUDA edge cases:
+        # 1) Requested CUDA compute type not available
+        # 2) Installed CTranslate2 build is CPU-only
+        if TRANSLATION_DEVICE == "cuda":
+            print("⚠️  CTranslate2 CUDA unavailable, falling back to CPU translation")
+            _translator = ctranslate2.Translator(
+                ct2_path,
+                device="cpu",
+                compute_type="int8",
+                intra_threads=CT2_INTRA_THREADS,
+                inter_threads=CT2_INTER_THREADS,
+            )
+            _translator_device = "cpu"
+        else:
+            raise
+
     state["trans_status"]  = "ready"
-    state["trans_backend"] = "CTranslate2-NLLB-600M"
+    state["trans_backend"] = f"CTranslate2-NLLB-600M ({_translator_device})"
     print("  ✅ Translation loaded")
 
 def _clean(text: str) -> str:

@@ -14,9 +14,9 @@ from config import (
 from state import state
 
 # Queue protocol:
-#   ("partial", audio_ndarray, onset_time)  → fast beam=1 ASR → partial_transcript
-#   ("final",   audio_ndarray, onset_time)  → accuracy-focused beam=2 ASR
-#                                            → final_transcript → translation → TTS
+#   ("partial", audio_ndarray, onset_time)  → fast beam=1 ASR → partial_transcript (display only)
+#   ("final",   audio_ndarray, onset_time)  → accuracy-focused final ASR
+#                                            → final_transcript → translation (beam=2) → TTS
 asr_queue = queue.Queue(maxsize=TRANS_QUEUE_SIZE)
 
 _vad_model = None
@@ -109,7 +109,7 @@ def run_segmenter():
                 buffer.append(frame)
 
                 if silence_count >= SILENCE_FRAMES or len(buffer) >= MAX_FRAMES:
-                    # Final flush — full utterance, accuracy-focused beam=2 ASR.
+                    # Final flush — full utterance, accuracy-focused final ASR.
                     _enqueue("final", buffer, onset_time)
                     buffer        = []
                     silence_count = 0

@@ -8,25 +8,38 @@ import sounddevice as sd
 import torch
 from transformers import VitsModel, AutoTokenizer
 
-from config import TTS_MODEL_ID, OFFLINE_MODE, HF_HOME
+from config import TTS_MODEL_ID, OFFLINE_MODE, HF_HOME, TTS_DEVICE
 from translation import tts_text_queue
 from state import state
 
 _tts_model     = None
 _tts_tokenizer = None
+_tts_device    = "cpu"
 
 def _load_tts():
-    global _tts_model, _tts_tokenizer
+    global _tts_model, _tts_tokenizer, _tts_device
     try:
         print(f"⏳ Loading TTS model ({TTS_MODEL_ID})...")
         _tts_tokenizer = AutoTokenizer.from_pretrained(
             TTS_MODEL_ID, cache_dir=HF_HOME, local_files_only=OFFLINE_MODE)
-        # VITS MPS allocator is unstable on Mac ARM — keep on CPU
-        _tts_model = VitsModel.from_pretrained(
-            TTS_MODEL_ID, cache_dir=HF_HOME, local_files_only=OFFLINE_MODE).to("cpu")
+
+        target = TTS_DEVICE
+        try:
+            _tts_model = VitsModel.from_pretrained(
+                TTS_MODEL_ID, cache_dir=HF_HOME, local_files_only=OFFLINE_MODE).to(target)
+            _tts_device = target
+        except Exception:
+            if target != "cpu":
+                print(f"⚠️  TTS device '{target}' unavailable, falling back to CPU")
+                _tts_model = VitsModel.from_pretrained(
+                    TTS_MODEL_ID, cache_dir=HF_HOME, local_files_only=OFFLINE_MODE).to("cpu")
+                _tts_device = "cpu"
+            else:
+                raise
+
         _tts_model.eval()    # lock BatchNorm / Dropout to eval mode permanently
         state["tts_status"]  = "idle"
-        state["tts_backend"] = "MMS-TTS-Telugu"
+        state["tts_backend"] = f"MMS-TTS-Telugu ({_tts_device})"
         print("  ✅ TTS loaded")
         # Pre-warm: first inference is always slow (JIT compilation + memory alloc).
         # Run a silent dummy pass so the first real utterance is not penalised.
@@ -36,12 +49,13 @@ def _load_tts():
         print(f"⚠️  TTS failed to load: {e}")
 
 def _prewarm_tts():
-    """Synthesise a short Telugu word at startup so the first real call is fast."""
+    """Synthesise (but don't play) a short Telugu word at startup."""
     try:
-        dummy = "నమస్కారం"   # "Namaskaram" — short, ensures all codepaths execute
+        dummy = "నమస్కారం"
         inp = _tts_tokenizer(dummy, return_tensors="pt")
+        inp = {k: v.to(_tts_device) for k, v in inp.items()}
         with torch.inference_mode():
-            _ = _tts_model(**inp).waveform
+            _ = _tts_model(**inp).waveform   # warm up model weights only
         print("  ✅ TTS pre-warmed")
     except Exception:
         pass   # non-fatal
@@ -59,6 +73,7 @@ def _synthesize_and_play(text: str) -> tuple[int, int]:
 
     try:
         inputs = _tts_tokenizer(text, return_tensors="pt")
+        inputs = {k: v.to(_tts_device) for k, v in inputs.items()}
         if inputs["input_ids"].shape[1] <= 2:
             return 0, 0
 
@@ -72,8 +87,11 @@ def _synthesize_and_play(text: str) -> tuple[int, int]:
         audio = waveform.squeeze().cpu().numpy().astype(np.float32)
         sr    = _tts_model.config.sampling_rate
         t_play = time.time()
-        sd.play(audio, samplerate=sr)
-        sd.wait()
+        # Use OutputStream.write() instead of sd.play() — the convenience
+        # sd.play() uses a global internal stream that conflicts with the
+        # concurrent sd.InputStream running for mic capture on Mac PortAudio.
+        with sd.OutputStream(samplerate=sr, channels=1, dtype="float32") as out:
+            out.write(audio.reshape(-1, 1))
         play_ms = int((time.time() - t_play) * 1000)
 
         return synth_ms, play_ms

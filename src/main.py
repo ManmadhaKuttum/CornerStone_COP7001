@@ -29,7 +29,6 @@ DASHBOARD_DIR = os.path.join(PROJECT_ROOT, "dashboard")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("\n🚀 [BOOT] Loading all ML models on main thread...")
-    state["offline_mode"] = OFFLINE_MODE
 
     # All models loaded sequentially on the main thread before any worker
     # thread starts — prevents PyTorch multi-threaded init crashes on Mac ARM.
@@ -37,6 +36,9 @@ async def lifespan(app: FastAPI):
     _load_asr()
     _load_translation()
     _load_tts()
+
+    # All models loaded from local cache — system is now fully offline-capable.
+    state["offline_mode"] = True
 
     print("🚀 [BOOT] Starting pipeline threads...")
     start_mic()

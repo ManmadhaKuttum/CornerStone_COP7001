@@ -33,12 +33,21 @@ if OFFLINE_MODE:
 if torch.cuda.is_available():
     DEVICE       = "cuda"
     COMPUTE_TYPE = "int8_float16"
+    TRANSLATION_DEVICE       = "cuda"
+    TRANSLATION_COMPUTE_TYPE = "int8_float16"
+    TTS_DEVICE               = "cuda"
 elif torch.backends.mps.is_available():
     DEVICE       = "cpu"      # CTranslate2 does not support MPS
     COMPUTE_TYPE = "int8"
+    TRANSLATION_DEVICE       = "cpu"
+    TRANSLATION_COMPUTE_TYPE = "int8"
+    TTS_DEVICE               = "cpu"   # MPS VITS is unstable on macOS
 else:
     DEVICE       = "cpu"
     COMPUTE_TYPE = "int8"
+    TRANSLATION_DEVICE       = "cpu"
+    TRANSLATION_COMPUTE_TYPE = "int8"
+    TTS_DEVICE               = "cpu"
 
 # ── Audio ─────────────────────────────────────────────────────────────────────
 SAMPLE_RATE    = 16000
@@ -59,7 +68,7 @@ PARTIAL_INTERVAL  = 1.0         # seconds between partial ASR inferences
 
 # ── ASR ───────────────────────────────────────────────────────────────────────
 ASR_LANGUAGE                = "hi"
-BEAM_SIZE                   = 4     # accuracy-first: beam=4 is OpenAI's recommended default for Whisper
+BEAM_SIZE                   = 4 if torch.cuda.is_available() else 3
 PARTIAL_BEAM_SIZE           = 1     # partial path — speed only, never feeds TTS
 NO_SPEECH_THRESHOLD         = 0.60
 COMPRESSION_RATIO_THRESHOLD = 2.4
@@ -69,10 +78,14 @@ LOG_PROB_THRESHOLD          = -1.0
 SRC_LANG      = "hin_Deva"
 TGT_LANG      = "tel_Telu"
 MAX_LENGTH    = 128
-TRANS_BEAMS   = 1                           # greedy decoding — ~2× faster
-# CTranslate2 thread counts — uses all Apple Silicon efficiency+performance cores
-CT2_INTRA_THREADS = min(8, _mp.cpu_count())  # parallelise each op
-CT2_INTER_THREADS = 2                        # overlap independent ops
+TRANS_BEAMS   = 2                           # beam=2 noticeably improves Telugu quality vs greedy
+# CTranslate2 thread counts are relevant on CPU path.
+if TRANSLATION_DEVICE == "cpu":
+    CT2_INTRA_THREADS = min(8, _mp.cpu_count())  # parallelise each op
+    CT2_INTER_THREADS = 2                        # overlap independent ops
+else:
+    CT2_INTRA_THREADS = 1
+    CT2_INTER_THREADS = 1
 
 # ── Queue sizes ───────────────────────────────────────────────────────────────
 AUDIO_QUEUE_SIZE = 200
