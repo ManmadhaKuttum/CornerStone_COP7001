@@ -147,10 +147,14 @@ def run_tts():
         state["tts_latency_ms"] = synth_ms
         state["tts_play_ms"]    = play_ms
 
-        # E2E = speech onset → end of speaker output (mic-to-ear, per guideline).
-        # Only record if onset is recent enough to be meaningful.
-        if onset_time and (time.time() - onset_time) < _MAX_ONSET_AGE_S:
-            state["e2e_latency_ms"] = int((time.time() - onset_time) * 1000)
+        # Dashboard E2E should reflect pipeline processing time, not the
+        # variable duration of audio playback. Playback length is tracked
+        # separately in tts_play_ms.
+        state["e2e_latency_ms"] = (
+            state.get("asr_latency_ms", 0)
+            + state.get("trans_latency_ms", 0)
+            + synth_ms
+        )
 
         state["tts_status"] = "idle"
 

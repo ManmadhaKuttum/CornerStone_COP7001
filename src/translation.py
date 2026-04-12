@@ -52,51 +52,44 @@ def _load_translation():
 
     ct2_path = os.path.join(PROJECT_ROOT, "pretrained", "nllb-200-distilled-600M-int8")
     if os.path.isdir(ct2_path):
-        _translator = ctranslate2.Translator(
-            ct2_path, device="cpu", compute_type="int8",
-            intra_threads=CT2_INTRA_THREADS,
-            inter_threads=CT2_INTER_THREADS,
-        )
+        translator_kwargs = {
+            "device": TRANSLATION_DEVICE,
+            "compute_type": TRANSLATION_COMPUTE_TYPE,
+        }
+        if TRANSLATION_DEVICE == "cpu":
+            translator_kwargs["intra_threads"] = CT2_INTRA_THREADS
+            translator_kwargs["inter_threads"] = CT2_INTER_THREADS
+
+        try:
+            _translator = ctranslate2.Translator(ct2_path, **translator_kwargs)
+            _translator_device = TRANSLATION_DEVICE
+        except Exception:
+            # Fallback for CUDA edge cases:
+            # 1) Requested CUDA compute type not available
+            # 2) Installed CTranslate2 build is CPU-only
+            if TRANSLATION_DEVICE == "cuda":
+                print("⚠️  CTranslate2 CUDA unavailable, falling back to CPU translation")
+                _translator = ctranslate2.Translator(
+                    ct2_path,
+                    device="cpu",
+                    compute_type="int8",
+                    intra_threads=CT2_INTRA_THREADS,
+                    inter_threads=CT2_INTER_THREADS,
+                )
+                _translator_device = "cpu"
+            else:
+                raise
+
         _hf_model = None
         _backend = "ct2"
-        state["trans_backend"] = "CTranslate2-NLLB-600M"
         state["trans_status"] = "ready"
-        print("  ✅ Translation loaded (CTranslate2)")
+        state["trans_backend"] = f"CTranslate2-NLLB-600M ({_translator_device})"
+        print("  ✅ Translation loaded")
         return
 
-    translator_kwargs = {
-        "device": TRANSLATION_DEVICE,
-        "compute_type": TRANSLATION_COMPUTE_TYPE,
-    }
-    if TRANSLATION_DEVICE == "cpu":
-        translator_kwargs["intra_threads"] = CT2_INTRA_THREADS
-        translator_kwargs["inter_threads"] = CT2_INTER_THREADS
-
-    try:
-        _translator = ctranslate2.Translator(ct2_path, **translator_kwargs)
-        _translator_device = TRANSLATION_DEVICE
-    except Exception:
-        # Fallback for CUDA edge cases:
-        # 1) Requested CUDA compute type not available
-        # 2) Installed CTranslate2 build is CPU-only
-        if TRANSLATION_DEVICE == "cuda":
-            print("⚠️  CTranslate2 CUDA unavailable, falling back to CPU translation")
-            _translator = ctranslate2.Translator(
-                ct2_path,
-                device="cpu",
-                compute_type="int8",
-                intra_threads=CT2_INTRA_THREADS,
-                inter_threads=CT2_INTER_THREADS,
-            )
-            _translator_device = "cpu"
-        else:
-            raise
-
-    state["trans_status"]  = "ready"
-    state["trans_backend"] = f"CTranslate2-NLLB-600M ({_translator_device})"
-    print("  ✅ Translation loaded")
     print("  ⚠️  CTranslate2 export missing, using cached Transformers NLLB model")
     _translator = None
+    _translator_device = "cpu"
     _hf_model = AutoModelForSeq2SeqLM.from_pretrained(
         tokenizer_src,
         cache_dir=HF_HOME,
@@ -132,15 +125,15 @@ def _translate(text: str, tag: str) -> tuple[str, int]:
     else:
         inputs = _tok(text, return_tensors="pt")
         forced_bos_token_id = _tok.convert_tokens_to_ids(TGT_LANG)
-        max_new_tokens = min(MAX_LENGTH, max(24, int(inputs["input_ids"].shape[1]) + 12))
+        max_new_tokens = min(MAX_LENGTH, max(20, int(inputs["input_ids"].shape[1]) + 8))
         if tag == "partial":
-            max_new_tokens = min(max_new_tokens, 48)
+            max_new_tokens = min(max_new_tokens, 28)
         with torch.inference_mode():
             generated = _hf_model.generate(
                 **inputs,
                 forced_bos_token_id=forced_bos_token_id,
                 max_new_tokens=max_new_tokens,
-                num_beams=TRANS_BEAMS,
+                num_beams=1,
                 do_sample=False,
                 use_cache=True,
                 early_stopping=True,
@@ -167,6 +160,12 @@ def run_translation():
         if _backend == "ct2" and _translator is None:
             continue
         if _backend == "hf" and _hf_model is None:
+            continue
+
+        # Transformers fallback on CPU is much slower than the CT2 path.
+        # Skip live partial translation there so finalized Telugu arrives sooner.
+        if _backend == "hf" and tag == "partial":
+            state["partial_translation"] = ""
             continue
 
         # If queue already has pending items, skip stale partial work and keep
