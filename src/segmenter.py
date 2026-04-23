@@ -13,10 +13,6 @@ from config import (
 )
 from state import state
 
-# Queue protocol:
-#   ("partial", audio_ndarray, onset_time)  → fast beam=1 ASR → partial_transcript (display only)
-#   ("final",   audio_ndarray, onset_time)  → accuracy-focused final ASR
-#                                            → final_transcript → translation (beam=2) → TTS
 asr_queue = queue.Queue(maxsize=TRANS_QUEUE_SIZE)
 
 _vad_model = None
@@ -80,7 +76,6 @@ def _find_silero_in_hub_cache():
 
 def _vad_conf(frame: np.ndarray) -> float:
     if _vad_mode == "energy":
-        # Normalize RMS into a rough 0..1 confidence-like range for fallback VAD.
         rms = float(np.sqrt(np.mean(frame ** 2)))
         return min(1.0, rms * 40.0)
     with torch.no_grad():
@@ -133,9 +128,6 @@ def run_segmenter():
             buffer.append(frame)
             silence_count = 0
 
-            # Partial flush — every PARTIAL_INTERVAL while still speaking.
-            # Sends a COPY of current buffer so the accumulation continues.
-            # ASR runs fast beam=1 on this → updates partial_transcript on dashboard.
             now = time.time()
             if now - last_partial >= PARTIAL_INTERVAL:
                 _enqueue("partial", list(buffer), onset_time)
@@ -147,7 +139,6 @@ def run_segmenter():
                 buffer.append(frame)
 
                 if silence_count >= SILENCE_FRAMES or len(buffer) >= MAX_FRAMES:
-                    # Final flush — full utterance, accuracy-focused final ASR.
                     _enqueue("final", buffer, onset_time)
                     buffer        = []
                     silence_count = 0

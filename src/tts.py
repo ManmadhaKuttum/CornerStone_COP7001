@@ -66,12 +66,10 @@ def _load_tts():
                 _tts_device = "cpu"
             else:
                 raise
-        _tts_model.eval()    # lock BatchNorm / Dropout to eval mode permanently
+        _tts_model.eval()    
         state["tts_status"]  = "idle"
         state["tts_backend"] = f"MMS-TTS-Telugu ({_tts_device})"
         print("  ✅ TTS loaded")
-        # Pre-warm: first inference is always slow (JIT compilation + memory alloc).
-        # Run a silent dummy pass so the first real utterance is not penalised.
         _prewarm_tts()
     except Exception as e:
         state["tts_status"] = "unavailable"
@@ -84,10 +82,10 @@ def _prewarm_tts():
         inp = _tts_tokenizer(dummy, return_tensors="pt")
         inp = {k: v.to(_tts_device) for k, v in inp.items()}
         with torch.inference_mode():
-            _ = _tts_model(**inp).waveform   # warm up model weights only
+            _ = _tts_model(**inp).waveform  
         print("  ✅ TTS pre-warmed")
     except Exception:
-        pass   # non-fatal
+        pass  
 
 def _clean(text: str) -> str:
     text = text.replace("<unk>", "")
@@ -106,19 +104,14 @@ def _synthesize_and_play(text: str) -> tuple[int, int]:
         if inputs["input_ids"].shape[1] <= 2:
             return 0, 0
 
-        # ── Synthesis ────────────────────────────────────────────────────────
         t_synth = time.time()
-        with torch.inference_mode():   # faster than no_grad — skips autograd machinery
+        with torch.inference_mode():   
             waveform = _tts_model(**inputs).waveform
         synth_ms = int((time.time() - t_synth) * 1000)
 
-        # ── Playback ─────────────────────────────────────────────────────────
         audio = waveform.squeeze().cpu().numpy().astype(np.float32)
         sr    = _tts_model.config.sampling_rate
         t_play = time.time()
-        # Use OutputStream.write() instead of sd.play() — the convenience
-        # sd.play() uses a global internal stream that conflicts with the
-        # concurrent sd.InputStream running for mic capture on Mac PortAudio.
         sd = _sounddevice()
         with sd.OutputStream(samplerate=sr, channels=1, dtype="float32") as out:
             out.write(audio.reshape(-1, 1))
@@ -130,7 +123,7 @@ def _synthesize_and_play(text: str) -> tuple[int, int]:
         print(f"⚠️  TTS playback error: {e}")
         return 0, 0
 
-_MAX_ONSET_AGE_S = 15.0   # discard e2e measurement if utterance queued > 15 s ago
+_MAX_ONSET_AGE_S = 15.0  
 
 def run_tts():
     while True:
@@ -144,22 +137,15 @@ def run_tts():
         if not text or state["tts_status"] == "unavailable":
             continue
 
-        # Drop stale items — if an utterance has waited more than 15 s in the
-        # queue the E2E number would be meaningless and speaker already missed it.
         if onset_time and (time.time() - onset_time) > _MAX_ONSET_AGE_S:
             continue
 
         state["tts_status"] = "speaking"
         synth_ms, play_ms = _synthesize_and_play(text)
 
-        # Report synthesis-only latency (excludes audio playback duration which
-        # is fixed by the length of the translated sentence — not a system cost).
         state["tts_latency_ms"] = synth_ms
         state["tts_play_ms"]    = play_ms
 
-        # Dashboard E2E should reflect pipeline processing time, not the
-        # variable duration of audio playback. Playback length is tracked
-        # separately in tts_play_ms.
         state["e2e_latency_ms"] = (
             state.get("asr_latency_ms", 0)
             + state.get("trans_latency_ms", 0)

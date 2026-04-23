@@ -63,41 +63,34 @@ else:
     except ValueError:
         MIC_DEVICE = _mic_device_env
 
-# ── VAD / segmenter ───────────────────────────────────────────────────────────
-VAD_THRESHOLD     = 0.55        # keep sensitivity for soft Hindi consonants
-SILENCE_DURATION  = 0.50        # safer end-of-utterance cut for better word completion
-MAX_UTTERANCE_SEC = 8.0         # more context for final ASR quality
+VAD_THRESHOLD     = 0.55        
+SILENCE_DURATION  = 0.50       
+MAX_UTTERANCE_SEC = 8.0       
 SILENCE_FRAMES    = int(SILENCE_DURATION / FRAME_DURATION)
 MAX_FRAMES        = int(MAX_UTTERANCE_SEC / FRAME_DURATION)
 
-# Partial flush: send buffered audio to fast ASR every N seconds while speaking.
-# This drives live partial_transcript on dashboard.
-PARTIAL_INTERVAL  = 1.0         # seconds between partial ASR inferences
+PARTIAL_INTERVAL  = 1.0         
 
-# ── ASR ───────────────────────────────────────────────────────────────────────
 ASR_LANGUAGE                = "hi"
 BEAM_SIZE                   = 4 if torch.cuda.is_available() else 3
-PARTIAL_BEAM_SIZE           = 1     # partial path — speed only, never feeds TTS
+PARTIAL_BEAM_SIZE           = 1     
 NO_SPEECH_THRESHOLD         = 0.60
 COMPRESSION_RATIO_THRESHOLD = 2.4
 LOG_PROB_THRESHOLD          = -1.0
 
-# ── Translation ───────────────────────────────────────────────────────────────
 SRC_LANG      = "hin_Deva"
 TGT_LANG      = "tel_Telu"
 MAX_LENGTH    = 128
-TRANS_BEAMS   = 2                           # beam=2 noticeably improves Telugu quality vs greedy
-# CTranslate2 thread counts are relevant on CPU path.
+TRANS_BEAMS   = 2                          
+
 if TRANSLATION_DEVICE == "cpu":
-    CT2_INTRA_THREADS = min(8, _mp.cpu_count())  # parallelise each op
-    CT2_INTER_THREADS = 2                        # overlap independent ops
+    CT2_INTRA_THREADS = min(8, _mp.cpu_count()) 
+    CT2_INTER_THREADS = 2                        
 else:
     CT2_INTRA_THREADS = 1
     CT2_INTER_THREADS = 1
 
-# ── Queue sizes ───────────────────────────────────────────────────────────────
 AUDIO_QUEUE_SIZE = 200
 TRANS_QUEUE_SIZE = 50
 
-# ── Dashboard ─────────────────────────────────────────────────────────────────
 WS_HZ = 10

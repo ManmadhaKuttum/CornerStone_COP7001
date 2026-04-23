@@ -16,9 +16,6 @@ from config import (
 from asr import trans_text_queue
 from state import state
 
-# Output queue to TTS thread.
-# Protocol: (text_str, onset_time_float)
-# Keep small to avoid long speaker backlog and stale e2e numbers.
 tts_text_queue = queue.Queue(maxsize=3)
 
 _translator = None
@@ -64,9 +61,6 @@ def _load_translation():
             _translator = ctranslate2.Translator(ct2_path, **translator_kwargs)
             _translator_device = TRANSLATION_DEVICE
         except Exception:
-            # Fallback for CUDA edge cases:
-            # 1) Requested CUDA compute type not available
-            # 2) Installed CTranslate2 build is CPU-only
             if TRANSLATION_DEVICE == "cuda":
                 print("⚠️  CTranslate2 CUDA unavailable, falling back to CPU translation")
                 _translator = ctranslate2.Translator(
@@ -164,14 +158,10 @@ def run_translation():
         if _backend == "hf" and _hf_model is None:
             continue
 
-        # Transformers fallback on CPU is much slower than the CT2 path.
-        # Skip live partial translation there so finalized Telugu arrives sooner.
         if _backend == "hf" and tag == "partial":
             state["partial_translation"] = ""
             continue
 
-        # If queue already has pending items, skip stale partial work and keep
-        # CPU available for final results.
         if tag == "partial" and not trans_text_queue.empty():
             continue
 
@@ -190,7 +180,6 @@ def run_translation():
             state["partial_translation"] = translated
             continue
 
-        # RTF = (asr inference time + translation inference time) / audio duration
         audio_dur = state.get("last_audio_duration", 1.0)
         if audio_dur > 0:
             total_proc = (state["asr_latency_ms"] + latency) / 1000.0
@@ -209,7 +198,6 @@ def run_translation():
         try:
             tts_text_queue.put_nowait((session_id, translated, onset_time))
         except queue.Full:
-            # Drop one oldest TTS item so speaker stays near real-time.
             try:
                 tts_text_queue.get_nowait()
             except queue.Empty:
