@@ -1,55 +1,58 @@
 # Real-Time Speech Translation System
 
-## Phase 2 – Hindi Speech Recognition (ASR)
-
-This project aims to build a real-time speech-to-speech translation system for Indian languages.
-
-The current implementation completes **Phase 2**:
-Real-time **Hindi speech recognition (ASR)** from microphone input with a live monitoring dashboard.
+A real-time **Hindi → Telugu speech-to-speech translation** system that runs fully offline after initial model setup.
 
 ---
 
-## Implemented (Phase 2)
+## System Overview
 
-* Live microphone audio capture (streaming)
-* Voice Activity Detection (VAD) for speech segmentation
-* Real-time Hindi speech-to-text using Faster-Whisper
-* GPU-accelerated inference (CUDA support)
-* Producer–consumer pipeline using a bounded queue
-* Concurrent processing (audio + segmentation + ASR + dashboard)
-* Real-time web dashboard (WebSocket-based)
-* Live audio energy meter
-* Speech activity indicator (Speaking / Silence)
-* Partial and final transcript display
-* ASR latency tracking
-* Stable continuous execution
-* Fully offline operation (no external APIs)
+Speak in Hindi — hear the translation in Telugu within seconds. The full pipeline runs locally with no cloud calls.
+
+```
+Microphone → VAD Segmenter → ASR (Whisper) → Translation (NLLB-200) → TTS (MMS) → Audio Output
+                                                        ↓
+                                              Web Dashboard (live)
+```
 
 ---
 
-## Architecture (Current)
+## Features
 
-Microphone → Audio Buffer → Segmenter (VAD) → ASR (Whisper) → Web Dashboard
-
-This forms the core pipeline required for real-time speech processing.
+- Live microphone audio capture (streaming, 32 ms frames)
+- Voice Activity Detection (Silero VAD) for speech segmentation
+- Real-time Hindi speech-to-text using Faster-Whisper (`small` model)
+- Hindi → Telugu translation using Facebook NLLB-200-distilled-600M
+- Telugu text-to-speech using Facebook MMS-TTS
+- GPU-accelerated inference (CUDA / int8_float16)
+- Producer–consumer pipeline with bounded queues
+- Concurrent processing across audio, segmentation, ASR, translation, and TTS threads
+- Real-time web dashboard (WebSocket-based, 10 Hz updates)
+- Live audio energy meter and speech activity indicator
+- Partial and final transcript display with translation output
+- ASR and end-to-end latency tracking
+- Session reset (clears all queues and pipeline state)
+- Fully offline operation after first-run model download
 
 ---
 
 ## Tech Stack
 
-* Python
-* SoundDevice
-* Faster-Whisper (ASR)
-* FastAPI
-* WebSockets
-* HTML / CSS / JavaScript
-* CUDA (GPU acceleration)
+| Layer | Library |
+|---|---|
+| Audio capture | SoundDevice |
+| VAD | Silero VAD |
+| ASR | Faster-Whisper |
+| Translation | CTranslate2 + NLLB-200-distilled-600M |
+| TTS | Transformers + MMS-TTS (Telugu) |
+| Backend | FastAPI + Uvicorn |
+| Dashboard | HTML / CSS / JavaScript (WebSocket) |
+| Acceleration | CUDA (NVIDIA) / CPU fallback |
 
 ---
 
 ## Running the System
 
-Install dependencies first:
+**Install dependencies:**
 
 macOS:
 ```bash
@@ -65,51 +68,41 @@ source venv/bin/activate
 pip install -r requirements-linux-cuda.txt
 ```
 
-Then run:
-
+**Start the server:**
 ```bash
 python src/main.py
 ```
 
-Then open in browser:
-
+**Open the dashboard:**
 ```
 http://localhost:8000
 ```
 
 ---
 
-## Offline-Ready Setup (No Runtime Downloads)
+## Offline-Ready Setup
 
-By default this project starts in warm-cache mode (`OFFLINE_MODE = False`) so first run
-can download missing models. After models are cached locally, you can switch
-`OFFLINE_MODE = True` in `src/config.py` for strict offline demo mode.
+By default the project starts with `OFFLINE_MODE = False` so models download automatically on first run. After all models are cached, set `OFFLINE_MODE = True` in [src/config.py](src/config.py) for strict offline mode.
 
-Make sure the following assets are present locally before demo day.
+### Required assets
 
-1. Silero VAD repo (local path used by `SILERO_VAD_PATH`)
+**1. Silero VAD**
 
-If you already downloaded Silero VAD (or it exists in your Torch Hub cache),
-just point to it:
-```bash
-export SILERO_VAD_PATH="/absolute/path/to/silero-vad"
-```
-
-Optional (first-time setup only):
+Point to a local clone or let Torch Hub cache it:
 ```bash
 git clone https://github.com/snakers4/silero-vad pretrained/silero-vad
+export SILERO_VAD_PATH="$(pwd)/pretrained/silero-vad"
 ```
 
-2. Faster-Whisper model directory (set `WHISPER_MODEL_PATH`)
+**2. Faster-Whisper model**
 
-Example:
 ```bash
-export WHISPER_MODEL_PATH="/absolute/path/to/whisper-small"
+export WHISPER_MODEL_PATH="/path/to/whisper-small"
 ```
+If not set, `faster-whisper` downloads and caches `small` automatically.
 
-3. Hugging Face cache for tokenizer + TTS (stored under `pretrained/hf`)
+**3. Hugging Face models (translation + TTS)**
 
-Example (run once online to cache locally):
 ```bash
 export HF_HOME="$(pwd)/pretrained/hf"
 python - <<'PY'
@@ -120,7 +113,7 @@ VitsModel.from_pretrained("facebook/mms-tts-tel")
 PY
 ```
 
-4. CTranslate2 NLLB model (already configured)
+**4. NLLB CTranslate2 model**
 
 ```bash
 ct2-transformers-converter --model facebook/nllb-200-distilled-600M \
@@ -128,59 +121,34 @@ ct2-transformers-converter --model facebook/nllb-200-distilled-600M \
     --quantization int8
 ```
 
-If you want to allow downloads again, set `OFFLINE_MODE = False` in `src/config.py`.
-
 ---
 
 ## How to Use
 
-1. Start the server
-2. Open the dashboard in your browser
-3. Speak clearly in **Hindi**
-4. Observe:
-
-   * Energy levels
-   * Speech detection
-   * Live transcription output
-
----
-
-## Example Test Sentences
-
-* मेरा नाम मनमधा है
-* मैं हिंदी बोल रहा हूँ
-* यह एक परीक्षण है
+1. Start the server and open the dashboard in a browser
+2. Speak clearly in **Hindi**
+3. The dashboard shows:
+   - Live audio energy and speech / silence status
+   - Hindi transcription (partial and final)
+   - Telugu translation
+   - Latency metrics
+4. Click **Reset Session** to clear state and start a new session
 
 ---
 
-## Current Output
+## Example Sentences
 
-* Real-time Hindi text transcription from speech
-* Displayed on the dashboard instantly after speech ends
-
----
-
-## Next Phase (Planned)
-
-### Phase 3 – Translation
-
-* Hindi text → Telugu text translation
-* Integration with Indic translation models
-* Real-time translated output on dashboard
-
----
-
-## Future Scope
-
-* Telugu speech recognition
-* Text-to-speech (TTS)
-* Full speech-to-speech translation
-* Multi-language support
+| Hindi | Telugu |
+|---|---|
+| मेरा नाम मनमधा है | నా పేరు మన్మధ |
+| मैं हिंदी बोल रहा हूँ | నేను హిందీ మాట్లాడుతున్నాను |
+| यह एक परीक्षण है | ఇది ఒక పరీక్ష |
 
 ---
 
 ## Notes
 
-* Works best with clear speech and minimal background noise
-* GPU improves performance significantly (RTX 2050 supported)
-* No internet required after model download
+- Works best with clear speech and minimal background noise
+- GPU (NVIDIA) significantly reduces end-to-end latency
+- No internet connection required after initial model download
+- macOS: MPS is not used (CTranslate2 / VITS instability); CPU mode is used instead
