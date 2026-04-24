@@ -4,23 +4,14 @@ import torch
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# ── Offline mode ──────────────────────────────────────────────────────────────
-# Set True only after all models are cached locally.
-# When False, models download automatically on first run.
 OFFLINE_MODE = False
 
 HF_HOME          = os.getenv("HF_HOME", os.path.join(PROJECT_ROOT, "pretrained", "hf"))
 SILERO_VAD_PATH  = os.getenv("SILERO_VAD_PATH", os.path.join(PROJECT_ROOT, "pretrained", "silero-vad"))
 
-# ── ASR model ─────────────────────────────────────────────────────────────────
-# If WHISPER_MODEL_PATH points to a real local directory, use it.
-# Otherwise use "small" — faster-whisper downloads and caches it automatically.
 _whisper_env = os.getenv("WHISPER_MODEL_PATH", "")
-# Accuracy-first default:
-# "small" has noticeably better Hindi quality than "tiny" in most noisy/live cases.
 ASR_MODEL = _whisper_env if (os.path.isdir(_whisper_env)) else "small"
 
-# ── Translation / TTS model IDs ───────────────────────────────────────────────
 TRANSLATION_TOKENIZER_ID = "facebook/nllb-200-distilled-600M"
 TTS_MODEL_ID             = "facebook/mms-tts-tel"
 
@@ -29,7 +20,6 @@ if OFFLINE_MODE:
     os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
     os.environ.setdefault("HF_HOME", HF_HOME)
 
-# ── Device ────────────────────────────────────────────────────────────────────
 if torch.cuda.is_available():
     DEVICE       = "cuda"
     COMPUTE_TYPE = "int8_float16"
@@ -37,11 +27,11 @@ if torch.cuda.is_available():
     TRANSLATION_COMPUTE_TYPE = "int8_float16"
     TTS_DEVICE               = "cuda"
 elif torch.backends.mps.is_available():
-    DEVICE       = "cpu"      # CTranslate2 does not support MPS
+    DEVICE       = "cpu"      
     COMPUTE_TYPE = "int8"
     TRANSLATION_DEVICE       = "cpu"
     TRANSLATION_COMPUTE_TYPE = "int8"
-    TTS_DEVICE               = "cpu"   # MPS VITS is unstable on macOS
+    TTS_DEVICE               = "cpu"   
 else:
     DEVICE       = "cpu"
     COMPUTE_TYPE = "int8"
@@ -49,9 +39,8 @@ else:
     TRANSLATION_COMPUTE_TYPE = "int8"
     TTS_DEVICE               = "cpu"
 
-# ── Audio ─────────────────────────────────────────────────────────────────────
 SAMPLE_RATE    = 16000
-FRAME_DURATION = 0.032          # 32 ms = 512 samples (Silero minimum)
+FRAME_DURATION = 0.032          
 FRAME_SAMPLES  = int(SAMPLE_RATE * FRAME_DURATION)
 CHANNELS       = 1
 _mic_device_env = os.getenv("MIC_DEVICE")
